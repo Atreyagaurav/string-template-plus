@@ -1,3 +1,22 @@
+//! # Introduction
+//!
+//! This is a simple template tool that works with variable names and
+//! [`HashMap`] of [`String`]. The [`Template`] can be parsed from
+//! [`str`] and then you can render it using the variables in
+//! [`HashMap`] and any shell commands running through [`Exec`].
+//!
+//! # Features
+//! - Parse the template from a [`str`] that's easy to write,
+//! - Support for alternatives in case some variables are not present,
+//! - Support for literal strings inside the alternative options,
+//! - Support for the date time format using [`chrono`],
+//! - Support for any arbitrary commands, etc.
+//!
+//! # Limitations
+//! - You cannot use positional arguments in this template system, only named ones.
+//! - I haven't tested variety of names, although they should work try to keep the names identifier friendly.
+//! - Currently doesn't have format specifiers, for now you can use the command options with `printf` bash command to format things the way you want.
+//! Like a template `this is $(printf "%.2f" {weight}) kg.` should be rendered with the correct float formatting.
 use anyhow::{Context, Error};
 use chrono::Local;
 use lazy_static::lazy_static;
@@ -7,10 +26,13 @@ use std::io::Read;
 use std::path::PathBuf;
 use subprocess::Exec;
 
+/// Character to separate the variables. If the first variable is not present it'll use the one behind it and so on. Keep it at the end, if you want a empty string instead of error on missing variable.
 pub static OPTIONAL_RENDER_CHAR: char = '?';
+/// Character that should be in the beginning of the variable to determine it as datetime format.
 pub static TIME_FORMAT_CHAR: char = '%';
+/// Quote characters to use to make a value literal instead of a variable. In combination with [`OPTIONAL_RENDER_CHAR`] it can be used as a default value when variable(s) is/are not present.
 pub static LITERAL_VALUE_QUOTE_CHAR: char = '"';
-pub static LITERAL_REPLACEMENTS: [&str; 6] = [
+static LITERAL_REPLACEMENTS: [&str; 6] = [
     "",  // to replace {} as empty string.
     "{", // to replace {{} as {
     "}", // to replace {}} as }
@@ -18,10 +40,11 @@ pub static LITERAL_REPLACEMENTS: [&str; 6] = [
 ];
 
 lazy_static! {
-    pub static ref VARIABLE_REGEX: Regex = Regex::new(r"\{(.*?)\}").unwrap();
-    pub static ref SHELL_COMMAND_REGEX: Regex = Regex::new(r"[$]\((.*?)\)").unwrap();
+    static ref VARIABLE_REGEX: Regex = Regex::new(r"\{(.*?)\}").unwrap();
+    static ref SHELL_COMMAND_REGEX: Regex = Regex::new(r"[$]\((.*?)\)").unwrap();
 }
 
+/// Runs a command and returns the output of the command or the error
 fn cmd_output(cmd: &str, wd: &PathBuf) -> Result<String, Error> {
     let mut out: String = String::new();
     Exec::shell(cmd)
@@ -31,6 +54,15 @@ fn cmd_output(cmd: &str, wd: &PathBuf) -> Result<String, Error> {
     Ok(out)
 }
 
+/// Parts that make up a [`Template<'a>`]. You can have literal strings, variables, time date format, command, or optional format with [`OPTIONAL_RENDER_CHAR`].
+///
+/// [`TemplatePart<'a>::Lit`] = Literal Strings like `"hi "` in `"hi {name}"`
+/// [`TemplatePart<'a>::Var`] = Variable part like `"name"` in `"hi {name}"`
+/// [`TemplatePart<'a>::Time`] = Date time format like `"%F"` in `"Today: {%F}"`
+/// [`TemplatePart<'a>::Cmd`] = Command like `"echo world"` in `"hello $(echo world)"`
+/// [`TemplatePart<'a>::Any`] = Optional format like `"name?age"` in `"hello {name?age}"`
+///
+/// [`TemplatePart<'a>::Cmd`] and [`TemplatePart<'a>::Any`] can in turn contain other [`TemplatePart<'a>`] inside them. Haven't tested on nesting complex ones within each other though.
 #[derive(Debug)]
 pub enum TemplatePart<'a> {
     Lit(&'a str),
@@ -40,6 +72,28 @@ pub enum TemplatePart<'a> {
     Any(Vec<TemplatePart<'a>>),
 }
 
+/// Main Template that get's passed around, consists of `[Vec`] of [`TemplatePart<'a>`]
+///
+/// ```rust
+/// # use std::error::Error;
+/// # use std::collections::HashMap;
+/// # use std::path::PathBuf;
+/// # use string_template_plus::{Render, RenderOptions, parse_template};
+/// #
+/// # fn main() -> Result<(), Box<dyn Error>> {
+///     let templ = parse_template("hello {nickname?name}. You're $(printf \"%.1f\" {weight})kg").unwrap();
+///     let mut vars: HashMap<String, String> = HashMap::new();
+///     vars.insert("name".into(), "John".into());
+///     vars.insert("weight".into(), "132.3423".into());
+///     let rendered = templ
+///         .render(&RenderOptions {
+///             wd: PathBuf::from("."),
+///             variables: vars,
+///         })
+///         .unwrap();
+///     assert_eq!(rendered, "hello John. You're 132.3kg");
+/// # Ok(())
+/// }
 pub type Template<'a> = Vec<TemplatePart<'a>>;
 
 pub trait Render {
@@ -122,6 +176,7 @@ fn parse_variables(templ: &str) -> Template {
     template_parts
 }
 
+/// Parses the template from string and makes a [`Template<'a>`]. Which you can render later.
 pub fn parse_template(templ_str: &str) -> Result<Template, String> {
     let mut last_match = 0usize;
     let mut template_parts = Vec::new();

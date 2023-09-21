@@ -4,6 +4,11 @@ version = "0.1.1"
 edition = "2021"
 authors = ["Gaurav Atreya"]
 description = "Render string template with more options"
+repository = "https://github.com/Atreyagaurav/string-template-plus"
+license = "GPL-3.0-only"
+readme = "README.md"
+keywords = ["parsing", "string", "template"]
+categories = ["template-engine", "text-processing"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
