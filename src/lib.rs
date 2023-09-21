@@ -46,12 +46,12 @@ pub struct RenderOptions {
 }
 
 impl<'a> TemplatePart<'a> {
-    fn render(&self, op: &RenderOptions) -> String {
+    fn render(&self, op: &RenderOptions) -> Option<String> {
         match self {
-            TemplatePart::Lit(l) => l.to_string(),
-            TemplatePart::Var(v) => op.variables.get(*v).unwrap().to_string(),
-            TemplatePart::Cmd(c) => cmd_output(&render_template(c, op), &op.wd).unwrap(),
-            TemplatePart::Any(a) => a.iter().map(|p| p.render(op)).next().unwrap(),
+            TemplatePart::Lit(l) => Some(l.to_string()),
+            TemplatePart::Var(v) => op.variables.get(*v).map(|s| s.to_string()),
+            TemplatePart::Cmd(c) => cmd_output(&render_template(c, op), &op.wd).ok(),
+            TemplatePart::Any(a) => a.iter().filter_map(|p| p.render(op)).next(),
         }
     }
 }
@@ -59,7 +59,7 @@ impl<'a> TemplatePart<'a> {
 fn render_template(templ: &Template, op: &RenderOptions) -> String {
     templ
         .iter()
-        .map(|p| p.render(op))
+        .map(|p| p.render(op).expect("Invalid Render Arguments"))
         .collect::<Vec<String>>()
         .join("")
 }
@@ -122,7 +122,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_novars() {
+    fn test_lit() {
         let templ = parse_template("hello name").unwrap();
         let mut vars: HashMap<String, String> = HashMap::new();
         vars.insert("name".into(), "world".into());
@@ -139,6 +139,49 @@ mod tests {
     #[test]
     fn test_vars() {
         let templ = parse_template("hello {name}").unwrap();
+        let mut vars: HashMap<String, String> = HashMap::new();
+        vars.insert("name".into(), "world".into());
+        let rendered = render_template(
+            &templ,
+            &RenderOptions {
+                variables: vars,
+                ..Default::default()
+            },
+        );
+        assert_eq!(rendered, "hello world");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_novars() {
+        let templ = parse_template("hello {name}").unwrap();
+        let vars: HashMap<String, String> = HashMap::new();
+        render_template(
+            &templ,
+            &RenderOptions {
+                variables: vars,
+                ..Default::default()
+            },
+        );
+    }
+
+    #[test]
+    fn test_novars_opt() {
+        let templ = parse_template("hello {name?}").unwrap();
+        let vars: HashMap<String, String> = HashMap::new();
+        let rendered = render_template(
+            &templ,
+            &RenderOptions {
+                variables: vars,
+                ..Default::default()
+            },
+        );
+        assert_eq!(rendered, "hello ");
+    }
+
+    #[test]
+    fn test_optional() {
+        let templ = parse_template("hello {age?name}").unwrap();
         let mut vars: HashMap<String, String> = HashMap::new();
         vars.insert("name".into(), "world".into());
         let rendered = render_template(
