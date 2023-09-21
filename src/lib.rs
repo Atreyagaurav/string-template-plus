@@ -18,7 +18,7 @@ pub static LITERAL_REPLACEMENTS: [&str; 6] = [
 ];
 
 lazy_static! {
-    pub static ref VARIABLE_REGEX: Regex = Regex::new(r"\{{(.*?)\}}").unwrap();
+    pub static ref VARIABLE_REGEX: Regex = Regex::new(r"\{(.*?)\}").unwrap();
     pub static ref SHELL_COMMAND_REGEX: Regex = Regex::new(r"[$]\((.*?)\)").unwrap();
 }
 
@@ -42,13 +42,17 @@ pub enum TemplatePart<'a> {
 
 pub type Template<'a> = Vec<TemplatePart<'a>>;
 
+pub trait Render {
+    fn render(&self, op: &RenderOptions) -> Result<String, Error>;
+}
+
 #[derive(Default)]
 pub struct RenderOptions {
     pub wd: PathBuf,
     pub variables: HashMap<String, String>,
 }
 
-impl<'a> TemplatePart<'a> {
+impl<'a> Render for TemplatePart<'a> {
     fn render(&self, op: &RenderOptions) -> Result<String, Error> {
         match self {
             TemplatePart::Lit(l) => Ok(l.to_string()),
@@ -58,7 +62,7 @@ impl<'a> TemplatePart<'a> {
                 .map(|s| s.to_string())
                 .context("No such variable in the RenderOptions"),
             TemplatePart::Time(t) => Ok(Local::now().format(t).to_string()),
-            TemplatePart::Cmd(c) => cmd_output(&render_template(c, op)?, &op.wd),
+            TemplatePart::Cmd(c) => cmd_output(&c.render(op)?, &op.wd),
             TemplatePart::Any(a) => a
                 .iter()
                 .filter_map(|p| p.render(op).ok())
@@ -68,12 +72,13 @@ impl<'a> TemplatePart<'a> {
     }
 }
 
-fn render_template(templ: &Template, op: &RenderOptions) -> Result<String, Error> {
-    templ
-        .iter()
-        .map(|p| p.render(op))
-        .collect::<Result<Vec<String>, Error>>()
-        .map(|v| v.join(""))
+impl<'a> Render for Template<'a> {
+    fn render(&self, op: &RenderOptions) -> Result<String, Error> {
+        self.iter()
+            .map(|p| p.render(op))
+            .collect::<Result<Vec<String>, Error>>()
+            .map(|v| v.join(""))
+    }
 }
 
 fn parse_single_part(part: &str) -> TemplatePart {
@@ -144,14 +149,12 @@ mod tests {
         let templ = parse_template("hello name").unwrap();
         let mut vars: HashMap<String, String> = HashMap::new();
         vars.insert("name".into(), "world".into());
-        let rendered = render_template(
-            &templ,
-            &RenderOptions {
+        let rendered = templ
+            .render(&RenderOptions {
                 variables: vars,
                 ..Default::default()
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
         assert_eq!(rendered, "hello name");
     }
 
@@ -160,14 +163,12 @@ mod tests {
         let templ = parse_template("hello {name}").unwrap();
         let mut vars: HashMap<String, String> = HashMap::new();
         vars.insert("name".into(), "world".into());
-        let rendered = render_template(
-            &templ,
-            &RenderOptions {
+        let rendered = templ
+            .render(&RenderOptions {
                 variables: vars,
                 ..Default::default()
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
         assert_eq!(rendered, "hello world");
     }
 
@@ -176,28 +177,24 @@ mod tests {
     fn test_novars() {
         let templ = parse_template("hello {name}").unwrap();
         let vars: HashMap<String, String> = HashMap::new();
-        render_template(
-            &templ,
-            &RenderOptions {
+        templ
+            .render(&RenderOptions {
                 variables: vars,
                 ..Default::default()
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
     }
 
     #[test]
     fn test_novars_opt() {
         let templ = parse_template("hello {name?}").unwrap();
         let vars: HashMap<String, String> = HashMap::new();
-        let rendered = render_template(
-            &templ,
-            &RenderOptions {
+        let rendered = templ
+            .render(&RenderOptions {
                 variables: vars,
                 ..Default::default()
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
         assert_eq!(rendered, "hello ");
     }
 
@@ -206,14 +203,12 @@ mod tests {
         let templ = parse_template("hello {age?name}").unwrap();
         let mut vars: HashMap<String, String> = HashMap::new();
         vars.insert("name".into(), "world".into());
-        let rendered = render_template(
-            &templ,
-            &RenderOptions {
+        let rendered = templ
+            .render(&RenderOptions {
                 variables: vars,
                 ..Default::default()
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
         assert_eq!(rendered, "hello world");
     }
 
@@ -222,14 +217,12 @@ mod tests {
         let templ = parse_template("hello {age?\"20\"}").unwrap();
         let mut vars: HashMap<String, String> = HashMap::new();
         vars.insert("name".into(), "world".into());
-        let rendered = render_template(
-            &templ,
-            &RenderOptions {
+        let rendered = templ
+            .render(&RenderOptions {
                 variables: vars,
                 ..Default::default()
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
         assert_eq!(rendered, "hello 20");
     }
 
@@ -238,14 +231,12 @@ mod tests {
         let templ = parse_template("hello $(echo {name})").unwrap();
         let mut vars: HashMap<String, String> = HashMap::new();
         vars.insert("name".into(), "world".into());
-        let rendered = render_template(
-            &templ,
-            &RenderOptions {
+        let rendered = templ
+            .render(&RenderOptions {
                 wd: PathBuf::from("."),
                 variables: vars,
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
         assert_eq!(rendered, "hello world\n");
     }
 
@@ -256,14 +247,12 @@ mod tests {
         let output = format!("hello world at {}", timefmt);
         let mut vars: HashMap<String, String> = HashMap::new();
         vars.insert("name".into(), "world".into());
-        let rendered = render_template(
-            &templ,
-            &RenderOptions {
+        let rendered = templ
+            .render(&RenderOptions {
                 wd: PathBuf::from("."),
                 variables: vars,
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
         assert_eq!(rendered, output);
     }
 
@@ -274,14 +263,12 @@ mod tests {
         let output = format!("hello world at {}", timefmt);
         let mut vars: HashMap<String, String> = HashMap::new();
         vars.insert("name".into(), "world".into());
-        let rendered = render_template(
-            &templ,
-            &RenderOptions {
+        let rendered = templ
+            .render(&RenderOptions {
                 wd: PathBuf::from("."),
                 variables: vars,
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
         assert_eq!(rendered, output);
     }
 }
