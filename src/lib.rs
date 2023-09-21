@@ -1,3 +1,5 @@
+use anyhow::{Context, Error};
+use chrono::Local;
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::collections::HashMap;
@@ -6,26 +8,26 @@ use std::path::PathBuf;
 use subprocess::Exec;
 
 pub static OPTIONAL_RENDER_CHAR: char = '?';
+pub static TIME_FORMAT_CHAR: char = '%';
 pub static LITERAL_VALUE_QUOTE_CHAR: char = '"';
-pub static LITERAL_REPLACEMENTS: [&str; 3] = [
+pub static LITERAL_REPLACEMENTS: [&str; 6] = [
     "",  // to replace {} as empty string.
     "{", // to replace {{} as {
     "}", // to replace {}} as }
+    "?", "%", "\"", // to use these chars without their special meanings
 ];
 
 lazy_static! {
-    pub static ref VARIABLE_REGEX: Regex = Regex::new(&format!(r"\{{(.*?)\}}")).unwrap();
-    pub static ref SHELL_COMMAND_REGEX: Regex = Regex::new(&format!(r"[$]\((.*?)\)")).unwrap();
+    pub static ref VARIABLE_REGEX: Regex = Regex::new(r"\{{(.*?)\}}").unwrap();
+    pub static ref SHELL_COMMAND_REGEX: Regex = Regex::new(r"[$]\((.*?)\)").unwrap();
 }
 
-fn cmd_output(cmd: &str, wd: &PathBuf) -> Result<String, String> {
+fn cmd_output(cmd: &str, wd: &PathBuf) -> Result<String, Error> {
     let mut out: String = String::new();
     Exec::shell(cmd)
         .cwd(wd)
-        .stream_stdout()
-        .map_err(|e| e.to_string())?
-        .read_to_string(&mut out)
-        .map_err(|e| e.to_string())?;
+        .stream_stdout()?
+        .read_to_string(&mut out)?;
     Ok(out)
 }
 
@@ -33,6 +35,7 @@ fn cmd_output(cmd: &str, wd: &PathBuf) -> Result<String, String> {
 pub enum TemplatePart<'a> {
     Lit(&'a str),
     Var(&'a str),
+    Time(&'a str),
     Cmd(Vec<TemplatePart<'a>>),
     Any(Vec<TemplatePart<'a>>),
 }
@@ -46,51 +49,66 @@ pub struct RenderOptions {
 }
 
 impl<'a> TemplatePart<'a> {
-    fn render(&self, op: &RenderOptions) -> Option<String> {
+    fn render(&self, op: &RenderOptions) -> Result<String, Error> {
         match self {
-            TemplatePart::Lit(l) => Some(l.to_string()),
-            TemplatePart::Var(v) => op.variables.get(*v).map(|s| s.to_string()),
-            TemplatePart::Cmd(c) => cmd_output(&render_template(c, op), &op.wd).ok(),
-            TemplatePart::Any(a) => a.iter().filter_map(|p| p.render(op)).next(),
+            TemplatePart::Lit(l) => Ok(l.to_string()),
+            TemplatePart::Var(v) => op
+                .variables
+                .get(*v)
+                .map(|s| s.to_string())
+                .context("No such variable in the RenderOptions"),
+            TemplatePart::Time(t) => Ok(Local::now().format(t).to_string()),
+            TemplatePart::Cmd(c) => cmd_output(&render_template(c, op)?, &op.wd),
+            TemplatePart::Any(a) => a
+                .iter()
+                .filter_map(|p| p.render(op).ok())
+                .next()
+                .context("None of the alternatives given were found"),
         }
     }
 }
 
-fn render_template(templ: &Template, op: &RenderOptions) -> String {
+fn render_template(templ: &Template, op: &RenderOptions) -> Result<String, Error> {
     templ
         .iter()
-        .map(|p| p.render(op).expect("Invalid Render Arguments"))
-        .collect::<Vec<String>>()
-        .join("")
+        .map(|p| p.render(op))
+        .collect::<Result<Vec<String>, Error>>()
+        .map(|v| v.join(""))
+}
+
+fn parse_single_part(part: &str) -> TemplatePart {
+    if LITERAL_REPLACEMENTS.contains(&part) {
+        // the input_map.get() is not working for "", idk why
+        TemplatePart::Lit("")
+    } else if part.starts_with(LITERAL_VALUE_QUOTE_CHAR) && part.ends_with(LITERAL_VALUE_QUOTE_CHAR)
+    {
+        TemplatePart::Lit(&part[1..(part.len() - 1)])
+    } else if part.starts_with(TIME_FORMAT_CHAR) {
+        TemplatePart::Time(part)
+    } else {
+        TemplatePart::Var(part)
+    }
 }
 
 fn parse_variables(templ: &str) -> Template {
     let mut last_match = 0usize;
     let mut template_parts = Vec::new();
-    for cap in VARIABLE_REGEX.captures_iter(&templ) {
+    for cap in VARIABLE_REGEX.captures_iter(templ) {
         let m = cap.get(0).unwrap();
         template_parts.push(TemplatePart::Lit(&templ[last_match..m.start()]));
 
         let cg = cap.get(1).unwrap();
         let cap_slice = &templ[cg.start()..cg.end()];
         if cap_slice.contains(OPTIONAL_RENDER_CHAR) {
-            let mut parts = Vec::new();
-            for csg in cap_slice.split(OPTIONAL_RENDER_CHAR).map(|s| s.trim()) {
-                if LITERAL_REPLACEMENTS.contains(&csg) {
-                    // the input_map.get() is not working for "", idk why
-                    parts.push(TemplatePart::Lit(""));
-                } else if csg.starts_with(LITERAL_VALUE_QUOTE_CHAR)
-                    && csg.ends_with(LITERAL_VALUE_QUOTE_CHAR)
-                {
-                    parts.push(TemplatePart::Lit(&csg[1..(csg.len() - 1)]));
-                } else {
-                    parts.push(TemplatePart::Var(&csg));
-                }
-            }
+            let parts = cap_slice
+                .split(OPTIONAL_RENDER_CHAR)
+                .map(|s| s.trim())
+                .map(parse_single_part)
+                .collect();
 
             template_parts.push(TemplatePart::Any(parts));
         } else {
-            template_parts.push(TemplatePart::Var(cap_slice));
+            template_parts.push(parse_single_part(cap_slice));
         }
         last_match = m.end();
     }
@@ -102,7 +120,7 @@ fn parse_variables(templ: &str) -> Template {
 pub fn parse_template(templ_str: &str) -> Result<Template, String> {
     let mut last_match = 0usize;
     let mut template_parts = Vec::new();
-    for cmd in SHELL_COMMAND_REGEX.captures_iter(&templ_str) {
+    for cmd in SHELL_COMMAND_REGEX.captures_iter(templ_str) {
         let m = cmd.get(0).unwrap();
         let cmd = cmd.get(1).unwrap();
         let mut pts = parse_variables(&templ_str[last_match..m.start()]);
@@ -132,7 +150,8 @@ mod tests {
                 variables: vars,
                 ..Default::default()
             },
-        );
+        )
+        .unwrap();
         assert_eq!(rendered, "hello name");
     }
 
@@ -147,7 +166,8 @@ mod tests {
                 variables: vars,
                 ..Default::default()
             },
-        );
+        )
+        .unwrap();
         assert_eq!(rendered, "hello world");
     }
 
@@ -162,7 +182,8 @@ mod tests {
                 variables: vars,
                 ..Default::default()
             },
-        );
+        )
+        .unwrap();
     }
 
     #[test]
@@ -175,7 +196,8 @@ mod tests {
                 variables: vars,
                 ..Default::default()
             },
-        );
+        )
+        .unwrap();
         assert_eq!(rendered, "hello ");
     }
 
@@ -190,8 +212,25 @@ mod tests {
                 variables: vars,
                 ..Default::default()
             },
-        );
+        )
+        .unwrap();
         assert_eq!(rendered, "hello world");
+    }
+
+    #[test]
+    fn test_optional_lit() {
+        let templ = parse_template("hello {age?\"20\"}").unwrap();
+        let mut vars: HashMap<String, String> = HashMap::new();
+        vars.insert("name".into(), "world".into());
+        let rendered = render_template(
+            &templ,
+            &RenderOptions {
+                variables: vars,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(rendered, "hello 20");
     }
 
     #[test]
@@ -205,7 +244,44 @@ mod tests {
                 wd: PathBuf::from("."),
                 variables: vars,
             },
-        );
+        )
+        .unwrap();
         assert_eq!(rendered, "hello world\n");
+    }
+
+    #[test]
+    fn test_time() {
+        let templ = parse_template("hello {name} at {%Y-%m-%d}").unwrap();
+        let timefmt = Local::now().format("%Y-%m-%d");
+        let output = format!("hello world at {}", timefmt);
+        let mut vars: HashMap<String, String> = HashMap::new();
+        vars.insert("name".into(), "world".into());
+        let rendered = render_template(
+            &templ,
+            &RenderOptions {
+                wd: PathBuf::from("."),
+                variables: vars,
+            },
+        )
+        .unwrap();
+        assert_eq!(rendered, output);
+    }
+
+    #[test]
+    fn test_var_or_time() {
+        let templ = parse_template("hello {name} at {age?%Y-%m-%d}").unwrap();
+        let timefmt = Local::now().format("%Y-%m-%d");
+        let output = format!("hello world at {}", timefmt);
+        let mut vars: HashMap<String, String> = HashMap::new();
+        vars.insert("name".into(), "world".into());
+        let rendered = render_template(
+            &templ,
+            &RenderOptions {
+                wd: PathBuf::from("."),
+                variables: vars,
+            },
+        )
+        .unwrap();
+        assert_eq!(rendered, output);
     }
 }
