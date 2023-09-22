@@ -39,8 +39,8 @@ static LITERAL_REPLACEMENTS: [&str; 3] = [
 ];
 
 lazy_static! {
-    static ref VARIABLE_REGEX: Regex = Regex::new(r"\{(.*?)\}").unwrap();
-    static ref SHELL_COMMAND_REGEX: Regex = Regex::new(r"[$]\((.*?)\)").unwrap();
+    pub static ref VARIABLE_REGEX: Regex = Regex::new(r"\{(.*?)\}").unwrap();
+    pub static ref SHELL_COMMAND_REGEX: Regex = Regex::new(r"[$]\((.*?)\)").unwrap();
 }
 
 /// Runs a command and returns the output of the command or the error
@@ -53,25 +53,25 @@ fn cmd_output(cmd: &str, wd: &PathBuf) -> Result<String, Error> {
     Ok(out)
 }
 
-/// Parts that make up a [`Template<'a>`]. You can have literal strings, variables, time date format, command, or optional format with [`OPTIONAL_RENDER_CHAR`].
+/// Parts that make up a [`Template`]. You can have literal strings, variables, time date format, command, or optional format with [`OPTIONAL_RENDER_CHAR`].
 ///
-/// [`TemplatePart<'a>::Lit`] = Literal Strings like `"hi "` in `"hi {name}"`
-/// [`TemplatePart<'a>::Var`] = Variable part like `"name"` in `"hi {name}"`
-/// [`TemplatePart<'a>::Time`] = Date time format like `"%F"` in `"Today: {%F}"`
-/// [`TemplatePart<'a>::Cmd`] = Command like `"echo world"` in `"hello $(echo world)"`
-/// [`TemplatePart<'a>::Any`] = Optional format like `"name?age"` in `"hello {name?age}"`
+/// [`TemplatePart::Lit`] = Literal Strings like `"hi "` in `"hi {name}"`
+/// [`TemplatePart::Var`] = Variable part like `"name"` in `"hi {name}"`
+/// [`TemplatePart::Time`] = Date time format like `"%F"` in `"Today: {%F}"`
+/// [`TemplatePart::Cmd`] = Command like `"echo world"` in `"hello $(echo world)"`
+/// [`TemplatePart::Any`] = Optional format like `"name?age"` in `"hello {name?age}"`
 ///
-/// [`TemplatePart<'a>::Cmd`] and [`TemplatePart<'a>::Any`] can in turn contain other [`TemplatePart<'a>`] inside them. Haven't tested on nesting complex ones within each other though.
+/// [`TemplatePart::Cmd`] and [`TemplatePart::Any`] can in turn contain other [`TemplatePart`] inside them. Haven't tested on nesting complex ones within each other though.
 #[derive(Debug, Clone)]
-pub enum TemplatePart<'a> {
-    Lit(&'a str),
-    Var(&'a str),
-    Time(&'a str),
-    Cmd(Vec<TemplatePart<'a>>),
-    Any(Vec<TemplatePart<'a>>),
+pub enum TemplatePart {
+    Lit(String),
+    Var(String),
+    Time(String),
+    Cmd(Vec<TemplatePart>),
+    Any(Vec<TemplatePart>),
 }
 
-/// Main Template that get's passed around, consists of `[Vec`] of [`TemplatePart<'a>`]
+/// Main Template that get's passed around, consists of `[Vec`] of [`TemplatePart`]
 ///
 /// ```rust
 /// # use std::error::Error;
@@ -93,7 +93,7 @@ pub enum TemplatePart<'a> {
 ///     assert_eq!(rendered, "hello John. You're 132.3kg");
 /// # Ok(())
 /// }
-pub type Template<'a> = Vec<TemplatePart<'a>>;
+pub type Template = Vec<TemplatePart>;
 
 pub trait Render {
     fn render(&self, op: &RenderOptions) -> Result<String, Error>;
@@ -105,13 +105,13 @@ pub struct RenderOptions {
     pub variables: HashMap<String, String>,
 }
 
-impl<'a> Render for TemplatePart<'a> {
+impl Render for TemplatePart {
     fn render(&self, op: &RenderOptions) -> Result<String, Error> {
         match self {
             TemplatePart::Lit(l) => Ok(l.to_string()),
             TemplatePart::Var(v) => op
                 .variables
-                .get(*v)
+                .get(v)
                 .map(|s| s.to_string())
                 .context("No such variable in the RenderOptions"),
             TemplatePart::Time(t) => Ok(Local::now().format(t).to_string()),
@@ -125,7 +125,7 @@ impl<'a> Render for TemplatePart<'a> {
     }
 }
 
-impl<'a> Render for Template<'a> {
+impl Render for Template {
     fn render(&self, op: &RenderOptions) -> Result<String, Error> {
         self.iter()
             .map(|p| p.render(op))
@@ -136,14 +136,14 @@ impl<'a> Render for Template<'a> {
 
 fn parse_single_part(part: &str) -> TemplatePart {
     if LITERAL_REPLACEMENTS.contains(&part) {
-        TemplatePart::Lit(part)
+        TemplatePart::Lit(part.to_string())
     } else if part.starts_with(LITERAL_VALUE_QUOTE_CHAR) && part.ends_with(LITERAL_VALUE_QUOTE_CHAR)
     {
-        TemplatePart::Lit(&part[1..(part.len() - 1)])
+        TemplatePart::Lit(part[1..(part.len() - 1)].to_string())
     } else if part.starts_with(TIME_FORMAT_CHAR) {
-        TemplatePart::Time(part)
+        TemplatePart::Time(part.to_string())
     } else {
-        TemplatePart::Var(part)
+        TemplatePart::Var(part.to_string())
     }
 }
 
@@ -152,7 +152,7 @@ fn parse_variables(templ: &str) -> Template {
     let mut template_parts = Vec::new();
     for cap in VARIABLE_REGEX.captures_iter(templ) {
         let m = cap.get(0).unwrap();
-        template_parts.push(TemplatePart::Lit(&templ[last_match..m.start()]));
+        template_parts.push(TemplatePart::Lit(templ[last_match..m.start()].to_string()));
 
         let cg = cap.get(1).unwrap();
         let cap_slice = &templ[cg.start()..cg.end()];
@@ -170,13 +170,13 @@ fn parse_variables(templ: &str) -> Template {
         last_match = m.end();
     }
     if !templ[last_match..].is_empty() {
-        template_parts.push(TemplatePart::Lit(&templ[last_match..]));
+        template_parts.push(TemplatePart::Lit(templ[last_match..].to_string()));
     }
 
     template_parts
 }
 
-/// Parses the template from string and makes a [`Template<'a>`]. Which you can render later./// Main Template that get's passed around, consists of `[Vec`] of [`TemplatePart<'a>`]
+/// Parses the template from string and makes a [`Template`]. Which you can render later./// Main Template that get's passed around, consists of `[Vec`] of [`TemplatePart`]
 ///
 /// ```rust
 /// # use std::error::Error;
