@@ -13,7 +13,7 @@
 //! - Support for any arbitrary commands, etc.
 //!
 //! # Limitations
-//! - You cannot use positional arguments in this template system, only named ones.
+//! - You cannot use positional arguments in this template system, only named ones. `{}` will be replaced with empty string. Although you can use `"0"`, `"1"`, etc as variable names in the template and the render options variables.
 //! - I haven't tested variety of names, although they should work try to keep the names identifier friendly.
 //! - Currently doesn't have format specifiers, for now you can use the command options with `printf` bash command to format things the way you want.
 //! Like a template `this is $(printf "%.2f" {weight}) kg.` should be rendered with the correct float formatting.
@@ -32,11 +32,10 @@ pub static OPTIONAL_RENDER_CHAR: char = '?';
 pub static TIME_FORMAT_CHAR: char = '%';
 /// Quote characters to use to make a value literal instead of a variable. In combination with [`OPTIONAL_RENDER_CHAR`] it can be used as a default value when variable(s) is/are not present.
 pub static LITERAL_VALUE_QUOTE_CHAR: char = '"';
-static LITERAL_REPLACEMENTS: [&str; 6] = [
+static LITERAL_REPLACEMENTS: [&str; 3] = [
     "",  // to replace {} as empty string.
     "{", // to replace {{} as {
     "}", // to replace {}} as }
-    "?", "%", "\"", // to use these chars without their special meanings
 ];
 
 lazy_static! {
@@ -137,8 +136,7 @@ impl<'a> Render for Template<'a> {
 
 fn parse_single_part(part: &str) -> TemplatePart {
     if LITERAL_REPLACEMENTS.contains(&part) {
-        // the input_map.get() is not working for "", idk why
-        TemplatePart::Lit("")
+        TemplatePart::Lit(part)
     } else if part.starts_with(LITERAL_VALUE_QUOTE_CHAR) && part.ends_with(LITERAL_VALUE_QUOTE_CHAR)
     {
         TemplatePart::Lit(&part[1..(part.len() - 1)])
@@ -171,12 +169,31 @@ fn parse_variables(templ: &str) -> Template {
         }
         last_match = m.end();
     }
-    template_parts.push(TemplatePart::Lit(&templ[last_match..]));
+    if !templ[last_match..].is_empty() {
+        template_parts.push(TemplatePart::Lit(&templ[last_match..]));
+    }
 
     template_parts
 }
 
-/// Parses the template from string and makes a [`Template<'a>`]. Which you can render later.
+/// Parses the template from string and makes a [`Template<'a>`]. Which you can render later./// Main Template that get's passed around, consists of `[Vec`] of [`TemplatePart<'a>`]
+///
+/// ```rust
+/// # use std::error::Error;
+/// # use std::collections::HashMap;
+/// # use std::path::PathBuf;
+/// # use string_template_plus::{Render, RenderOptions, parse_template};
+/// #
+/// # fn main() -> Result<(), Box<dyn Error>> {
+///     let templ = parse_template("hello {nickname?name?}. You're $(printf \"%.1f\" {weight})kg").unwrap();
+///     let parts = concat!("[Lit(\"hello \"), ",
+///                         "Any([Var(\"nickname\"), Var(\"name\"), Lit(\"\")]), ",
+///                         "Lit(\". You're \"), ",
+///                         "Cmd([Lit(\"printf \\\"%.1f\\\" \"), Var(\"weight\")]), ",
+///                         "Lit(\"kg\")]");
+///     assert_eq!(parts, format!("{:?}", templ));
+/// # Ok(())
+/// }
 pub fn parse_template(templ_str: &str) -> Result<Template, String> {
     let mut last_match = 0usize;
     let mut template_parts = Vec::new();
@@ -265,6 +282,13 @@ mod tests {
             })
             .unwrap();
         assert_eq!(rendered, "hello world");
+    }
+
+    #[test]
+    fn test_special_chars() {
+        let templ = parse_template("$hello {}? {{}{}}%").unwrap();
+        let rendered = templ.render(&RenderOptions::default()).unwrap();
+        assert_eq!(rendered, "$hello ? {}%");
     }
 
     #[test]
