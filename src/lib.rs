@@ -62,7 +62,7 @@ fn cmd_output(cmd: &str, wd: &PathBuf) -> Result<String, Error> {
 /// [`TemplatePart<'a>::Any`] = Optional format like `"name?age"` in `"hello {name?age}"`
 ///
 /// [`TemplatePart<'a>::Cmd`] and [`TemplatePart<'a>::Any`] can in turn contain other [`TemplatePart<'a>`] inside them. Haven't tested on nesting complex ones within each other though.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TemplatePart<'a> {
     Lit(&'a str),
     Var(&'a str),
@@ -99,7 +99,7 @@ pub trait Render {
     fn render(&self, op: &RenderOptions) -> Result<String, Error>;
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone)]
 pub struct RenderOptions {
     pub wd: PathBuf,
     pub variables: HashMap<String, String>,
@@ -194,7 +194,7 @@ fn parse_variables(templ: &str) -> Template {
 ///     assert_eq!(parts, format!("{:?}", templ));
 /// # Ok(())
 /// }
-pub fn parse_template(templ_str: &str) -> Result<Template, String> {
+pub fn parse_template(templ_str: &str) -> Result<Template, Error> {
     let mut last_match = 0usize;
     let mut template_parts = Vec::new();
     for cmd in SHELL_COMMAND_REGEX.captures_iter(templ_str) {
