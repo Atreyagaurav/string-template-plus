@@ -1,22 +1,137 @@
-//! # Introduction
-//!
-//! This is a simple template tool that works with variable names and
-//! [`HashMap`] of [`String`]. The [`Template`] can be parsed from
-//! [`str`] and then you can render it using the variables in
-//! [`HashMap`] and any shell commands running through [`Exec`].
-//!
-//! # Features
-//! - Parse the template from a [`str`] that's easy to write,
-//! - Support for alternatives in case some variables are not present,
-//! - Support for literal strings inside the alternative options,
-//! - Support for the date time format using [`chrono`],
-//! - Support for any arbitrary commands, etc.
-//!
-//! # Limitations
-//! - You cannot use positional arguments in this template system, only named ones. `{}` will be replaced with empty string. Although you can use `"0"`, `"1"`, etc as variable names in the template and the render options variables.
-//! - I haven't tested variety of names, although they should work try to keep the names identifier friendly.
-//! - Currently doesn't have format specifiers, for now you can use the command options with `printf` bash command to format things the way you want.
-//! Like a template `this is $(printf "%.2f" {weight}) kg.` should be rendered with the correct float formatting.
+/*!
+# Introduction
+
+This is a simple template tool that works with variable names and
+[`HashMap`] of [`String`]. The [`Template`] can be parsed from [`str`]
+and then you can render it using the variables in [`HashMap`] and any
+shell commands running through [`Exec`].
+
+# Features
+- Parse the template from a [`str`] that's easy to write,
+- Support for alternatives in case some variables are not present,
+- Support for literal strings inside the alternative options,
+- Support for the date time format using [`chrono`],
+- Support for any arbitrary commands, etc.
+
+# Usages
+Simple variables:
+```rust
+# use std::error::Error;
+# use std::collections::HashMap;
+# use std::path::PathBuf;
+# use string_template_plus::{Render, RenderOptions, parse_template};
+#
+# fn main() -> Result<(), Box<dyn Error>> {
+let templ = parse_template("hello {name}").unwrap();
+let mut vars: HashMap<String, String> = HashMap::new();
+vars.insert("name".into(), "world".into());
+let rendered = templ
+.render(&RenderOptions {
+variables: vars,
+..Default::default()
+            })
+            .unwrap();
+assert_eq!(rendered, "hello world");
+# Ok(())
+# }
+```
+
+Safe replace, blank if not present, or literal string if not present:
+```rust
+# use std::error::Error;
+# use std::collections::HashMap;
+# use std::path::PathBuf;
+# use string_template_plus::{Render, RenderOptions, parse_template};
+#
+# fn main() -> Result<(), Box<dyn Error>> {
+let templ = parse_template("hello {name?} {lastname?\"User\"}").unwrap();
+let vars: HashMap<String, String> = HashMap::new();
+let rendered = templ
+.render(&RenderOptions {
+variables: vars,
+..Default::default()
+            })
+            .unwrap();
+assert_eq!(rendered, "hello  User");
+# Ok(())
+# }
+```
+
+Alternate, whichever variable it finds first will be replaced:
+```rust
+# use std::error::Error;
+# use std::collections::HashMap;
+# use std::path::PathBuf;
+# use string_template_plus::{Render, RenderOptions, parse_template};
+#
+# fn main() -> Result<(), Box<dyn Error>> {
+let templ = parse_template("hello {nickname?name}").unwrap();
+let mut vars: HashMap<String, String> = HashMap::new();
+vars.insert("name".into(), "world".into());
+let rendered = templ
+.render(&RenderOptions {
+variables: vars,
+..Default::default()
+            })
+            .unwrap();
+        assert_eq!(rendered, "hello world");
+# Ok(())
+# }
+```
+
+Custom Commands:
+```rust
+# use std::error::Error;
+# use std::collections::HashMap;
+# use std::path::PathBuf;
+# use string_template_plus::{Render, RenderOptions, parse_template};
+#
+# fn main() -> Result<(), Box<dyn Error>> {
+let templ = parse_template("L=$(printf \"%.2f\" {length})").unwrap();
+let mut vars: HashMap<String, String> = HashMap::new();
+vars.insert("length".into(), "12.342323".into());
+let rendered = templ
+.render(&RenderOptions {
+wd: PathBuf::from("."),
+variables: vars,
+            })
+            .unwrap();
+        assert_eq!(rendered, "L=12.34");
+# Ok(())
+# }
+```
+
+Date Time:
+```rust
+# use std::error::Error;
+# use std::collections::HashMap;
+# use std::path::PathBuf;
+# use chrono::Local;
+# use string_template_plus::{Render, RenderOptions, parse_template};
+#
+# fn main() -> Result<(), Box<dyn Error>> {
+let templ = parse_template("hello {name} at {%Y-%m-%d}").unwrap();
+let timefmt = Local::now().format("%Y-%m-%d");
+let output = format!("hello world at {}", timefmt);
+let mut vars: HashMap<String, String> = HashMap::new();
+vars.insert("name".into(), "world".into());
+let rendered = templ
+.render(&RenderOptions {
+wd: PathBuf::from("."),
+variables: vars,
+            })
+            .unwrap();
+        assert_eq!(rendered, output);
+# Ok(())
+# }
+```
+
+# Limitations
+- You cannot use positional arguments in this template system, only named ones. `{}` will be replaced with empty string. Although you can use `"0"`, `"1"`, etc as variable names in the template and the render options variables.
+- I haven't tested variety of names, although they should work try to keep the names identifier friendly.
+- Currently doesn't have format specifiers, for now you can use the command options with `printf` bash command to format things the way you want.
+Like a template `this is $(printf "%.2f" {weight}) kg.` should be rendered with the correct float formatting.
+*/
 use anyhow::{Context, Error};
 use chrono::Local;
 use lazy_static::lazy_static;
