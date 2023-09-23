@@ -1,6 +1,6 @@
 [package]
 name = "string-template-plus"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 authors = ["Gaurav Atreya"]
 description = "Render string template with more options"
@@ -18,3 +18,4 @@ chrono = "0.4.31"
 lazy_static = "1.4.0"
 regex = "1.9.5"
 subprocess = "0.2.9"
+titlecase = "2.2.1"

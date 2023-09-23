@@ -15,7 +15,9 @@ shell commands running through [`Exec`].
 - Support for the date time format using `chrono`,
   You can use any format starting with `%` inside the variable placeholder `{}` to use a date time format supported by chrono.
 - Support for any arbitrary commands, etc.
-  You can keep any command inside `$(` and `)` to run it and use the result in the template. You can use other format elements inside it.
+You can keep any command inside `$(` and `)` to run it and use the result in the template. You can use other format elements inside it.
+- Support for iterating (incremented with -N) strings with the same template conditions,
+- Limited formatting support like UPCASE, downcase, float significant digits, etc.
 
 # Usages
 Simple variables:
@@ -155,11 +157,50 @@ shell_commands: false,
 # }
 ```
 
+Transformers:
+Although there is no format strings, there are transformer functions that can format for a bit. I'm planning to add more format functions as the need arises.
+```rust
+# use std::error::Error;
+# use std::collections::HashMap;
+# use std::path::PathBuf;
+# use chrono::Local;
+# use string_template_plus::{Render, RenderOptions, parse_template};
+#
+# fn main() -> Result<(), Box<dyn Error>> {
+let mut vars: HashMap<String, String> = HashMap::new();
+vars.insert("length".into(), "120.1234".into());
+vars.insert("name".into(), "joHN".into());
+vars.insert("job".into(), "assistant manager of company".into());
+let options = RenderOptions {
+variables: vars,
+..Default::default()
+        };
+let cases = [
+("L={length}", "L=120.1234"),
+("L={length:calc(+100)}", "L=220.1234"),
+("L={length:f(.2)} ({length:f(3)})", "L=120.12 (120.123)"),
+("hi {name:case(up)}", "hi JOHN"),
+(
+ "hi {name:case(proper)}, {job:case(title)}",
+ "hi John, Assistant Manager of Company",
+),
+ ("hi {name:case(down)}", "hi john"),
+];
+
+for (t, r) in cases {
+ let templ = parse_template(t).unwrap();
+ let rendered = templ.render(&options).unwrap();
+ assert_eq!(rendered, r);
+ }
+# Ok(())
+# }
+```
+
 # Limitations
 - You cannot use positional arguments in this template system, only named ones. `{}` will be replaced with empty string. Although you can use `"0"`, `"1"`, etc as variable names in the template and the render options variables.
 - I haven't tested variety of names, although they should work try to keep the names identifier friendly.
-- Currently doesn't have format specifiers, for now you can use the command options with `printf` bash command to format things the way you want.
-Like a template `this is $(printf "%.2f" {weight}) kg.` should be rendered with the correct float formatting.
+- Currently doesn't have format specifiers, for now you can use the command options with `printf` bash command to format things the way you want, or use the transformers which have limited formatting capabilities.
+Like a template `this is $(printf "%05.2f" {weight}) kg.` should be rendered with the correct float formatting.
 */
 use anyhow::{Context, Error};
 use chrono::Local;
@@ -169,6 +210,9 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
 use subprocess::Exec;
+
+mod errors;
+mod transformers;
 
 /// Character to separate the variables. If the first variable is not present it'll use the one behind it and so on. Keep it at the end, if you want a empty string instead of error on missing variable.
 pub static OPTIONAL_RENDER_CHAR: char = '?';
@@ -353,35 +397,12 @@ impl<'a> Iterator for RenderIter<'a> {
     }
 }
 
-// TODO Maybe just have some functions you can call with the variables
-// as input, and that can include some common functions and the
-// formatting functions as well.
 /// Support for Format Specifier [not well tested]
-fn format_variable(val: &str, format: &str) -> Result<String, Error> {
+fn transform_variable(val: &str, format: &str) -> Result<String, Error> {
     if format.is_empty() {
         Ok(val.to_string())
-    } else if format.contains('f') {
-        let val = val.parse::<f64>()?;
-        let mut start = 0usize;
-        let mut decimal = 6usize;
-        if let Some((d, f)) = format[..format.len() - 1].split_once('.') {
-            if !d.is_empty() {
-                start = d.parse()?;
-            }
-            if f.is_empty() {
-                decimal = 0;
-            } else {
-                decimal = f.parse()?;
-            }
-        } else {
-            if !format[..format.len() - 1].is_empty() {
-                start = format[..format.len() - 1].parse()?
-            }
-        }
-        Ok(format!("{0:1$.2$}", val, start, decimal))
     } else {
-        let length = format.parse::<usize>()?;
-        Ok(format!("{0:1$}", val, length))
+        Ok(transformers::apply_tranformers(val, format)?)
     }
 }
 
@@ -393,7 +414,7 @@ impl Render for TemplatePart {
                 .variables
                 .get(v)
                 .context("No such variable in the RenderOptions")
-                .map(|s| format_variable(s, f))?,
+                .map(|s| transform_variable(s, f))?,
             TemplatePart::Time(t) => Ok(Local::now().format(t).to_string()),
             TemplatePart::Cmd(c) => {
                 let cmd = c.render(op)?;
@@ -539,11 +560,23 @@ mod tests {
     fn test_vars_format() {
         let mut vars: HashMap<String, String> = HashMap::new();
         vars.insert("length".into(), "120.1234".into());
+        vars.insert("name".into(), "joHN".into());
+        vars.insert("job".into(), "assistant manager of company".into());
         let options = RenderOptions {
             variables: vars,
             ..Default::default()
         };
-        let cases = [("L={length}", "L=120.1234"), ("L={length:.2f}", "L=120.12")];
+        let cases = [
+            ("L={length}", "L=120.1234"),
+            ("L={length:calc(+100)}", "L=220.1234"),
+            ("L={length:f(.2)} ({length:f(3)})", "L=120.12 (120.123)"),
+            ("hi {name:case(up)}", "hi JOHN"),
+            (
+                "hi {name:case(proper)}, {job:case(title)}",
+                "hi John, Assistant Manager of Company",
+            ),
+            ("hi {name:case(down)}", "hi john"),
+        ];
 
         for (t, r) in cases {
             let templ = parse_template(t).unwrap();
