@@ -219,7 +219,7 @@ pub static OPTIONAL_RENDER_CHAR: char = '?';
 /// Character that should be in the beginning of the variable to determine it as datetime format.
 pub static TIME_FORMAT_CHAR: char = '%';
 /// Character that separates variable with format
-pub static VAR_FORMAT_SEP_CHAR: char = ':';
+pub static VAR_TRANSFORM_SEP_CHAR: char = ':';
 /// Quote characters to use to make a value literal instead of a variable. In combination with [`OPTIONAL_RENDER_CHAR`] it can be used as a default value when variable(s) is/are not present.
 pub static LITERAL_VALUE_QUOTE_CHAR: char = '"';
 /// Characters that should be replaced as themselves if presented as a variable
@@ -451,7 +451,7 @@ fn parse_single_part(part: &str) -> TemplatePart {
         TemplatePart::Lit(part[1..(part.len() - 1)].to_string())
     } else if part.starts_with(TIME_FORMAT_CHAR) {
         TemplatePart::Time(part.to_string())
-    } else if let Some((v, f)) = part.split_once(VAR_FORMAT_SEP_CHAR) {
+    } else if let Some((v, f)) = part.split_once(VAR_TRANSFORM_SEP_CHAR) {
         TemplatePart::Var(v.to_string(), f.to_string())
     } else {
         TemplatePart::Var(part.to_string(), "".to_string())
@@ -569,6 +569,7 @@ mod tests {
         let cases = [
             ("L={length}", "L=120.1234"),
             ("L={length:calc(+100)}", "L=220.1234"),
+            ("L={length:count(.):calc(+1)}", "L=2"),
             ("L={length:f(.2)} ({length:f(3)})", "L=120.12 (120.123)"),
             ("hi {name:case(up)}", "hi JOHN"),
             (

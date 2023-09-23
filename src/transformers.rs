@@ -1,20 +1,28 @@
 use crate::errors::TransformerError;
+use crate::VAR_TRANSFORM_SEP_CHAR;
 use lazy_static::lazy_static;
 use regex::Regex;
 use titlecase::titlecase;
 
-pub fn apply_tranformers(val: &str, tstr: &str) -> Result<String, TransformerError> {
-    let (name, args) = tstr.split_once('(').unwrap();
-    let args: Vec<&str> = args.strip_suffix(')').unwrap().split(',').collect();
-    match name {
-        "f" => float_format(val, args),
-        "case" => string_format_case(val, args),
-        "calc" => calc(val, args),
-        _ => Err(TransformerError::UnknownTranformer(
-            name.to_string(),
-            val.to_string(),
-        )),
+pub fn apply_tranformers(val: &str, transformations: &str) -> Result<String, TransformerError> {
+    let mut val: String = val.to_string();
+    for tstr in transformations.split(VAR_TRANSFORM_SEP_CHAR) {
+        let (name, args) = tstr.split_once('(').unwrap();
+        let args: Vec<&str> = args.strip_suffix(')').unwrap().split(',').collect();
+        val = match name {
+            "f" => float_format(&val, args)?,
+            "case" => string_format_case(&val, args)?,
+            "calc" => calc(&val, args)?,
+            "count" => count(&val, args)?,
+            _ => {
+                return Err(TransformerError::UnknownTranformer(
+                    name.to_string(),
+                    val.to_string(),
+                ))
+            }
+        };
     }
+    Ok(val)
 }
 
 fn check_arguments_len(f: &'static str, r: usize, g: usize) -> Result<(), TransformerError> {
@@ -123,4 +131,11 @@ pub fn calc(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
         last_match = m.end();
     }
     Ok(result.to_string())
+}
+
+pub fn count(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
+    let func_name = "count";
+    check_arguments_len(func_name, 1, args.len())?;
+    let sep = args[0];
+    Ok(val.matches(sep).count().to_string())
 }
