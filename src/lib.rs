@@ -94,9 +94,33 @@ let rendered = templ
 .render(&RenderOptions {
 wd: PathBuf::from("."),
 variables: vars,
+shell_commands: true,
             })
             .unwrap();
         assert_eq!(rendered, "L=12.34");
+# Ok(())
+# }
+```
+
+You can turn off Custom Commands for safety:
+```rust
+# use std::error::Error;
+# use std::collections::HashMap;
+# use std::path::PathBuf;
+# use string_template_plus::{Render, RenderOptions, parse_template};
+#
+# fn main() -> Result<(), Box<dyn Error>> {
+let templ = parse_template("L=$(printf \"%.2f\" {length})").unwrap();
+let mut vars: HashMap<String, String> = HashMap::new();
+vars.insert("length".into(), "12.342323".into());
+let rendered = templ
+.render(&RenderOptions {
+wd: PathBuf::from("."),
+variables: vars,
+shell_commands: false,
+            })
+            .unwrap();
+        assert_eq!(rendered, "L=$(printf \"%.2f\" 12.342323)");
 # Ok(())
 # }
 ```
@@ -119,6 +143,7 @@ let rendered = templ
 .render(&RenderOptions {
 wd: PathBuf::from("."),
 variables: vars,
+shell_commands: false,
             })
             .unwrap();
         assert_eq!(rendered, output);
@@ -203,6 +228,7 @@ pub enum TemplatePart {
 ///         .render(&RenderOptions {
 ///             wd: PathBuf::from("."),
 ///             variables: vars,
+///             shell_commands: true,
 ///         })
 ///         .unwrap();
 ///     assert_eq!(rendered, "hello John. You're 132.3kg");
@@ -218,6 +244,7 @@ pub trait Render {
 pub struct RenderOptions {
     pub wd: PathBuf,
     pub variables: HashMap<String, String>,
+    pub shell_commands: bool,
 }
 
 impl Render for TemplatePart {
@@ -230,7 +257,14 @@ impl Render for TemplatePart {
                 .map(|s| s.to_string())
                 .context("No such variable in the RenderOptions"),
             TemplatePart::Time(t) => Ok(Local::now().format(t).to_string()),
-            TemplatePart::Cmd(c) => cmd_output(&c.render(op)?, &op.wd),
+            TemplatePart::Cmd(c) => {
+                let cmd = c.render(op)?;
+                if op.shell_commands {
+                    cmd_output(&cmd, &op.wd)
+                } else {
+                    Ok(format!("$({cmd})"))
+                }
+            }
             TemplatePart::Any(a) => a
                 .iter()
                 .filter_map(|p| p.render(op).ok())
@@ -429,6 +463,7 @@ mod tests {
             .render(&RenderOptions {
                 wd: PathBuf::from("."),
                 variables: vars,
+                shell_commands: true,
             })
             .unwrap();
         assert_eq!(rendered, "hello world\n");
@@ -445,6 +480,7 @@ mod tests {
             .render(&RenderOptions {
                 wd: PathBuf::from("."),
                 variables: vars,
+                shell_commands: false,
             })
             .unwrap();
         assert_eq!(rendered, output);
@@ -461,6 +497,7 @@ mod tests {
             .render(&RenderOptions {
                 wd: PathBuf::from("."),
                 variables: vars,
+                shell_commands: false,
             })
             .unwrap();
         assert_eq!(rendered, output);
