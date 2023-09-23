@@ -7,11 +7,15 @@ and then you can render it using the variables in [`HashMap`] and any
 shell commands running through [`Exec`].
 
 # Features
-- Parse the template from a [`str`] that's easy to write,
+- Parse the template from a `str` that's easy to write,
 - Support for alternatives in case some variables are not present,
+  Use `?` to separate the alternatives, uses whichever it can find first. If `?` is at the end, leaves it blank instead of erroring out.
 - Support for literal strings inside the alternative options,
-- Support for the date time format using [`chrono`],
+  You can use a literal string `"string"` enclosed in `"` as an alternative if you want to put something instead of blank at the end.
+- Support for the date time format using `chrono`,
+  You can use any format starting with `%` inside the variable placeholder `{}` to use a date time format supported by chrono.
 - Support for any arbitrary commands, etc.
+  You can keep any command inside `$(` and `)` to run it and use the result in the template. You can use other format elements inside it.
 
 # Usages
 Simple variables:
