@@ -176,6 +176,7 @@ pub static OPTIONAL_RENDER_CHAR: char = '?';
 pub static TIME_FORMAT_CHAR: char = '%';
 /// Quote characters to use to make a value literal instead of a variable. In combination with [`OPTIONAL_RENDER_CHAR`] it can be used as a default value when variable(s) is/are not present.
 pub static LITERAL_VALUE_QUOTE_CHAR: char = '"';
+/// Characters that should be replaced as themselves if presented as a variable
 static LITERAL_REPLACEMENTS: [&str; 3] = [
     "",  // to replace {} as empty string.
     "{", // to replace {{} as {
@@ -183,7 +184,9 @@ static LITERAL_REPLACEMENTS: [&str; 3] = [
 ];
 
 lazy_static! {
+    /// Regex to capture the variable from the template, anything inside `{}`
     pub static ref VARIABLE_REGEX: Regex = Regex::new(r"\{(.*?)\}").unwrap();
+    /// Regex to capture the Shell Command part in the template
     pub static ref SHELL_COMMAND_REGEX: Regex = Regex::new(r"[$]\((.*?)\)").unwrap();
 }
 
@@ -208,10 +211,15 @@ fn cmd_output(cmd: &str, wd: &PathBuf) -> Result<String, Error> {
 /// [`TemplatePart::Cmd`] and [`TemplatePart::Any`] can in turn contain other [`TemplatePart`] inside them. Haven't tested on nesting complex ones within each other though.
 #[derive(Debug, Clone)]
 pub enum TemplatePart {
+    /// Literal string, keep them as they are
     Lit(String),
+    /// Variables, use the variable's value in the rendered String
     Var(String),
+    /// DateTime format, use [`chrono::Local`] in the given format
     Time(String),
+    /// Shell Command, use the output of command in the rendered String
     Cmd(Vec<TemplatePart>),
+    /// Multiple variables or [`TemplatePart`]s, use the first one that succeeds
     Any(Vec<TemplatePart>),
 }
 
@@ -240,14 +248,19 @@ pub enum TemplatePart {
 /// }
 pub type Template = Vec<TemplatePart>;
 
+/// Provides the function to render the object with [`RenderOptions`] into [`String`]
 pub trait Render {
     fn render(&self, op: &RenderOptions) -> Result<String, Error>;
 }
 
+/// Options for the [`Template`] to render into [`String`]
 #[derive(Default, Debug, Clone)]
 pub struct RenderOptions {
+    /// Working Directory for the Shell Commands
     pub wd: PathBuf,
+    /// Variables to use for the template
     pub variables: HashMap<String, String>,
+    /// Run Shell Commands for the output or not
     pub shell_commands: bool,
 }
 
@@ -318,6 +331,7 @@ pub struct RenderIter<'a> {
 }
 
 impl<'a> RenderIter<'a> {
+    /// Creates a new [`RenderIter<'a>`] object
     pub fn new(template: &'a Template, options: &'a RenderOptions) -> Self {
         Self {
             template: &template,
@@ -373,6 +387,7 @@ impl Render for Template {
     }
 }
 
+/// Parse a single [`TemplatePart`] from `str`, It can only parse [`TemplatePart::Lit`], [`TemplatePart::Time`], and [`TemplatePart::Var`].
 fn parse_single_part(part: &str) -> TemplatePart {
     if LITERAL_REPLACEMENTS.contains(&part) {
         TemplatePart::Lit(part.to_string())
@@ -386,6 +401,7 @@ fn parse_single_part(part: &str) -> TemplatePart {
     }
 }
 
+/// Parse variables in a `str` into [`Template`]. It can parse all types except [`TemplatePart::Cmd`]
 fn parse_variables(templ: &str) -> Template {
     let mut last_match = 0usize;
     let mut template_parts = Vec::new();
