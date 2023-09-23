@@ -4,6 +4,9 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use titlecase::titlecase;
 
+/// Applies any tranformations to the variable, you can chain the
+/// transformers Called whenever you use [`VAR_TRANSFORM_SEP_CHAR`] to
+/// provide a transformer in the template.
 pub fn apply_tranformers(val: &str, transformations: &str) -> Result<String, TransformerError> {
     let mut val: String = val.to_string();
     for tstr in transformations.split(VAR_TRANSFORM_SEP_CHAR) {
@@ -25,16 +28,22 @@ pub fn apply_tranformers(val: &str, transformations: &str) -> Result<String, Tra
     Ok(val)
 }
 
-fn check_arguments_len(f: &'static str, r: usize, g: usize) -> Result<(), TransformerError> {
-    if g < r {
-        Err(TransformerError::TooFewArguments(f, r, g))
-    } else if g > r {
-        Err(TransformerError::TooManyArguments(f, r, g))
+/// Checks whether the arguments lenth matches what is required
+fn check_arguments_len(
+    func_name: &'static str,
+    req: usize,
+    given: usize,
+) -> Result<(), TransformerError> {
+    if given < req {
+        Err(TransformerError::TooFewArguments(func_name, req, given))
+    } else if given > req {
+        Err(TransformerError::TooManyArguments(func_name, req, given))
     } else {
         Ok(())
     }
 }
 
+/// format the float (numbers). For example with `val=1.123`, `{val:f(2)}` or `{val:f(.2)}` gives `1.12`
 pub fn float_format(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
     let func_name = "f";
     check_arguments_len(func_name, 1, args.len())?;
@@ -67,6 +76,7 @@ pub fn float_format(val: &str, args: Vec<&str>) -> Result<String, TransformerErr
     Ok(format!("{0:1$.2$}", val, start, decimal))
 }
 
+/// Format the string. Supports `up`=> UPCASE, `down`=> downcase, `proper` => first character UPCASE all others downcase, `title` => title case according to [`titlecase`]
 pub fn string_format_case(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
     let func_name = "case";
     check_arguments_len(func_name, 1, args.len())?;
@@ -96,6 +106,7 @@ lazy_static! {
     static ref CALC_NUMBERS: Regex = Regex::new("[0-9.]+").unwrap();
 }
 
+/// Airthmatic calculations, the value needs to be float. e.g. `{val:calc(+1)}` will add 1 to the value. The order of calculation is left to right.
 pub fn calc(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
     let func_name = "calc";
     check_arguments_len(func_name, 1, args.len())?;
@@ -133,6 +144,7 @@ pub fn calc(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
     Ok(result.to_string())
 }
 
+/// Count the number of occurances of a pattern in the string. You can chain it with [`calc`] to get the number of word like: `{val:count( ):calc(+1)}`
 pub fn count(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
     let func_name = "count";
     check_arguments_len(func_name, 1, args.len())?;

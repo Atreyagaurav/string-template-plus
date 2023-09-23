@@ -1,11 +1,17 @@
 use std::{error::Error, fmt};
 
+/// Errors for the transformers
 #[derive(Debug)]
 pub enum TransformerError {
+    /// The transformer with the name doesn't exist
     UnknownTranformer(String, String),
+    /// Number of arguments is more than required
     TooManyArguments(&'static str, usize, usize),
+    /// Not enough arguments for the transformer
     TooFewArguments(&'static str, usize, usize),
+    /// The transformer cannot transform the given type
     InvalidValueType(&'static str, &'static str),
+    /// The argument provided is not the correct type
     InvalidArgumentType(&'static str, String, &'static str),
 }
 
