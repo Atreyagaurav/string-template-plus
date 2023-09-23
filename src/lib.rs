@@ -247,6 +247,92 @@ pub struct RenderOptions {
     pub shell_commands: bool,
 }
 
+impl RenderOptions {
+    pub fn render(&self, templ: &Template) -> Result<String, Error> {
+        templ.render(self)
+    }
+
+    /// Makes a [`RenderIter<'a>`] that can generate incremented strings from the given [`Template`] and the [`RenderOptions`]. The Iterator will have `-N` appended where N is the number representing the number of instance.
+    ///
+    /// ```rust
+    /// # use std::error::Error;
+    /// # use std::collections::HashMap;
+    /// # use string_template_plus::{Render, RenderOptions, parse_template};
+    /// #
+    /// # fn main() -> Result<(), Box<dyn Error>> {
+    ///     let templ = parse_template("hello {name}").unwrap();
+    ///     let mut vars: HashMap<String, String> = HashMap::new();
+    ///     vars.insert("name".into(), "world".into());
+    ///     let options = RenderOptions {
+    ///         variables: vars,
+    ///         ..Default::default()
+    ///     };
+    ///     let mut names = options.render_iter(&templ);
+    ///     assert_eq!("hello world-1", names.next().unwrap());
+    ///     assert_eq!("hello world-2", names.next().unwrap());
+    ///     assert_eq!("hello world-3", names.next().unwrap());
+    /// # Ok(())
+    /// # }
+    pub fn render_iter<'a>(&'a self, templ: &'a Template) -> RenderIter<'a> {
+        RenderIter {
+            template: templ,
+            options: self,
+            count: 0,
+        }
+    }
+}
+
+/// Render option with [`Iterator`] support. You can use this to get
+/// incremented render results. It'll add `-N` to the render
+/// [`Template`] where `N` is the count (1,2,3...). It can be useful
+/// to make files with a given template.
+///
+/// ```rust
+/// # use std::error::Error;
+/// # use std::collections::HashMap;
+/// # use string_template_plus::{Render, RenderOptions, RenderIter, parse_template};
+/// #
+/// # fn main() -> Result<(), Box<dyn Error>> {
+///     let templ = parse_template("hello {name}").unwrap();
+///     let mut vars: HashMap<String, String> = HashMap::new();
+///     vars.insert("name".into(), "world".into());
+///     let options = RenderOptions {
+///         variables: vars,
+///         ..Default::default()
+///     };
+///     let mut names = RenderIter::new(&templ, &options);
+///     assert_eq!("hello world-1", names.next().unwrap());
+///     assert_eq!("hello world-2", names.next().unwrap());
+///     assert_eq!("hello world-3", names.next().unwrap());
+/// # Ok(())
+/// # }
+#[derive(Debug, Clone)]
+pub struct RenderIter<'a> {
+    template: &'a Template,
+    options: &'a RenderOptions,
+    count: usize,
+}
+
+impl<'a> RenderIter<'a> {
+    pub fn new(template: &'a Template, options: &'a RenderOptions) -> Self {
+        Self {
+            template: &template,
+            options: &options,
+            count: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for RenderIter<'a> {
+    type Item = String;
+    fn next(&mut self) -> Option<String> {
+        self.template.render(&self.options).ok().map(|t| {
+            self.count += 1;
+            format!("{}-{}", t, self.count)
+        })
+    }
+}
+
 impl Render for TemplatePart {
     fn render(&self, op: &RenderOptions) -> Result<String, Error> {
         match self {
@@ -501,5 +587,20 @@ mod tests {
             })
             .unwrap();
         assert_eq!(rendered, output);
+    }
+
+    #[test]
+    fn test_render_iter() {
+        let templ = parse_template("hello {name}").unwrap();
+        let mut vars: HashMap<String, String> = HashMap::new();
+        vars.insert("name".into(), "world".into());
+        let options = RenderOptions {
+            variables: vars,
+            ..Default::default()
+        };
+        let mut names = options.render_iter(&templ);
+        assert_eq!("hello world-1", names.next().unwrap());
+        assert_eq!("hello world-2", names.next().unwrap());
+        assert_eq!("hello world-3", names.next().unwrap());
     }
 }
