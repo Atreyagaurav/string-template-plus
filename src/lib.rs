@@ -211,8 +211,8 @@ use std::io::Read;
 use std::path::PathBuf;
 use subprocess::Exec;
 
-mod errors;
-mod transformers;
+pub mod errors;
+pub mod transformers;
 
 /// Character to separate the variables. If the first variable is not present it'll use the one behind it and so on. Keep it at the end, if you want a empty string instead of error on missing variable.
 pub static OPTIONAL_RENDER_CHAR: char = '?';

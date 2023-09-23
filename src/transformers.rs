@@ -76,7 +76,7 @@ pub fn float_format(val: &str, args: Vec<&str>) -> Result<String, TransformerErr
     Ok(format!("{0:1$.2$}", val, start, decimal))
 }
 
-/// Format the string. Supports `up`=> UPCASE, `down`=> downcase, `proper` => first character UPCASE all others downcase, `title` => title case according to [`titlecase`]
+/// Format the string. Supports `up`=> UPCASE, `down`=> downcase, `proper` => first character UPCASE all others downcase, `title` => title case according to [`titlecase::titlecase`]. e.g. `{var:case(up)}`.
 pub fn string_format_case(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
     let func_name = "case";
     check_arguments_len(func_name, 1, args.len())?;
