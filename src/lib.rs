@@ -174,6 +174,8 @@ use subprocess::Exec;
 pub static OPTIONAL_RENDER_CHAR: char = '?';
 /// Character that should be in the beginning of the variable to determine it as datetime format.
 pub static TIME_FORMAT_CHAR: char = '%';
+/// Character that separates variable with format
+pub static VAR_FORMAT_SEP_CHAR: char = ':';
 /// Quote characters to use to make a value literal instead of a variable. In combination with [`OPTIONAL_RENDER_CHAR`] it can be used as a default value when variable(s) is/are not present.
 pub static LITERAL_VALUE_QUOTE_CHAR: char = '"';
 /// Characters that should be replaced as themselves if presented as a variable
@@ -203,7 +205,7 @@ fn cmd_output(cmd: &str, wd: &PathBuf) -> Result<String, Error> {
 /// Parts that make up a [`Template`]. You can have literal strings, variables, time date format, command, or optional format with [`OPTIONAL_RENDER_CHAR`].
 ///
 /// [`TemplatePart::Lit`] = Literal Strings like `"hi "` in `"hi {name}"`
-/// [`TemplatePart::Var`] = Variable part like `"name"` in `"hi {name}"`
+/// [`TemplatePart::Var`] = Variable part like `"name"` in `"hi {name}"` and format specifier
 /// [`TemplatePart::Time`] = Date time format like `"%F"` in `"Today: {%F}"`
 /// [`TemplatePart::Cmd`] = Command like `"echo world"` in `"hello $(echo world)"`
 /// [`TemplatePart::Any`] = Optional format like `"name?age"` in `"hello {name?age}"`
@@ -213,8 +215,8 @@ fn cmd_output(cmd: &str, wd: &PathBuf) -> Result<String, Error> {
 pub enum TemplatePart {
     /// Literal string, keep them as they are
     Lit(String),
-    /// Variables, use the variable's value in the rendered String
-    Var(String),
+    /// Variable and format, uses the variable's value in the rendered String
+    Var(String, String),
     /// DateTime format, use [`chrono::Local`] in the given format
     Time(String),
     /// Shell Command, use the output of command in the rendered String
@@ -351,15 +353,47 @@ impl<'a> Iterator for RenderIter<'a> {
     }
 }
 
+// TODO Maybe just have some functions you can call with the variables
+// as input, and that can include some common functions and the
+// formatting functions as well.
+/// Support for Format Specifier [not well tested]
+fn format_variable(val: &str, format: &str) -> Result<String, Error> {
+    if format.is_empty() {
+        Ok(val.to_string())
+    } else if format.contains('f') {
+        let val = val.parse::<f64>()?;
+        let mut start = 0usize;
+        let mut decimal = 6usize;
+        if let Some((d, f)) = format[..format.len() - 1].split_once('.') {
+            if !d.is_empty() {
+                start = d.parse()?;
+            }
+            if f.is_empty() {
+                decimal = 0;
+            } else {
+                decimal = f.parse()?;
+            }
+        } else {
+            if !format[..format.len() - 1].is_empty() {
+                start = format[..format.len() - 1].parse()?
+            }
+        }
+        Ok(format!("{0:1$.2$}", val, start, decimal))
+    } else {
+        let length = format.parse::<usize>()?;
+        Ok(format!("{0:1$}", val, length))
+    }
+}
+
 impl Render for TemplatePart {
     fn render(&self, op: &RenderOptions) -> Result<String, Error> {
         match self {
             TemplatePart::Lit(l) => Ok(l.to_string()),
-            TemplatePart::Var(v) => op
+            TemplatePart::Var(v, f) => op
                 .variables
                 .get(v)
-                .map(|s| s.to_string())
-                .context("No such variable in the RenderOptions"),
+                .context("No such variable in the RenderOptions")
+                .map(|s| format_variable(s, f))?,
             TemplatePart::Time(t) => Ok(Local::now().format(t).to_string()),
             TemplatePart::Cmd(c) => {
                 let cmd = c.render(op)?;
@@ -396,8 +430,10 @@ fn parse_single_part(part: &str) -> TemplatePart {
         TemplatePart::Lit(part[1..(part.len() - 1)].to_string())
     } else if part.starts_with(TIME_FORMAT_CHAR) {
         TemplatePart::Time(part.to_string())
+    } else if let Some((v, f)) = part.split_once(VAR_FORMAT_SEP_CHAR) {
+        TemplatePart::Var(v.to_string(), f.to_string())
     } else {
-        TemplatePart::Var(part.to_string())
+        TemplatePart::Var(part.to_string(), "".to_string())
     }
 }
 
@@ -442,9 +478,9 @@ fn parse_variables(templ: &str) -> Template {
 /// # fn main() -> Result<(), Box<dyn Error>> {
 ///     let templ = parse_template("hello {nickname?name?}. You're $(printf \"%.1f\" {weight})kg").unwrap();
 ///     let parts = concat!("[Lit(\"hello \"), ",
-///                         "Any([Var(\"nickname\"), Var(\"name\"), Lit(\"\")]), ",
+///                         "Any([Var(\"nickname\", \"\"), Var(\"name\", \"\"), Lit(\"\")]), ",
 ///                         "Lit(\". You're \"), ",
-///                         "Cmd([Lit(\"printf \\\"%.1f\\\" \"), Var(\"weight\")]), ",
+///                         "Cmd([Lit(\"printf \\\"%.1f\\\" \"), Var(\"weight\", \"\")]), ",
 ///                         "Lit(\"kg\")]");
 ///     assert_eq!(parts, format!("{:?}", templ));
 /// # Ok(())
@@ -497,6 +533,23 @@ mod tests {
             })
             .unwrap();
         assert_eq!(rendered, "hello world");
+    }
+
+    #[test]
+    fn test_vars_format() {
+        let mut vars: HashMap<String, String> = HashMap::new();
+        vars.insert("length".into(), "120.1234".into());
+        let options = RenderOptions {
+            variables: vars,
+            ..Default::default()
+        };
+        let cases = [("L={length}", "L=120.1234"), ("L={length:.2f}", "L=120.12")];
+
+        for (t, r) in cases {
+            let templ = parse_template(t).unwrap();
+            let rendered = templ.render(&options).unwrap();
+            assert_eq!(rendered, r);
+        }
     }
 
     #[test]
