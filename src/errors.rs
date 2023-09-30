@@ -23,8 +23,12 @@ impl fmt::Display for TransformerError {
             Self::UnknownTranformer(fun, val) => {
                 write!(f, "{fun} transformer not found for value {val}")
             }
-            Self::TooManyArguments(fun, r, g) => write!(f, "{fun} needs {r} arguments {g} given"),
-            Self::TooFewArguments(fun, r, g) => write!(f, "{fun} needs {r} arguments {g} given"),
+            Self::TooManyArguments(fun, r, g) => {
+                write!(f, "{fun} takes at max {r} arguments {g} given")
+            }
+            Self::TooFewArguments(fun, r, g) => {
+                write!(f, "{fun} needs at least {r} arguments {g} given")
+            }
             Self::InvalidValueType(fun, t) => write!(f, "{fun} can only tranform {t} type values"),
             Self::InvalidArgumentType(fun, g, t) => {
                 write!(f, "{fun} argument {g} needs to be of {t} type")
