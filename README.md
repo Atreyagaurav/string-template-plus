@@ -15,6 +15,8 @@ shell commands running through `Exec`.
 You can keep any command inside `$(` and `)` to run it and use the result in the template. You can use other format elements inside it.
 - Support for iterating (incremented with -N) strings with the same template conditions,
 - Limited formatting support like UPCASE, downcase, float significant digits, etc.
+# Bug
+Using transformations with `()` inside a command `$()` is not possible as they are recognized using regex. Need to fix it later.
 # Usages
 Simple variables:
 ```rust

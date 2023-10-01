@@ -19,6 +19,9 @@ You can keep any command inside `$(` and `)` to run it and use the result in the
 - Support for iterating (incremented with -N) strings with the same template conditions,
 - Limited formatting support like UPCASE, downcase, float significant digits, etc.
 
+# Bug
+Using transformations with `()` inside a command `$()` is not possible as they are recognized using regex. Need to fix it later.
+
 # Usages
 Simple variables:
 ```rust
@@ -204,7 +207,7 @@ Like a template `this is $(printf "%05.2f" {weight}) kg.` should be rendered wit
 */
 use anyhow::Error;
 use chrono::Local;
-use colored::Colorize;
+use colored::{Color, ColoredString, Colorize, Styles};
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::collections::HashMap;
@@ -548,24 +551,40 @@ impl Render for TemplatePart {
             ),
         }
     }
+    /// Visualize what has been parsed so it's easier to debug
     fn print(&self) {
         match self {
-            Self::Lit(s) => print!("{}", s.on_white()),
-            Self::Var(s, sf) => print!("{}", format!("{}:{}", s.on_bright_blue(), sf).on_blue()),
+            Self::Lit(s) => print!("{}", s),
+            Self::Var(s, sf) => print!("{}", {
+                if sf.is_empty() {
+                    s.on_blue()
+                } else {
+                    format!("{}:{}", s, sf.on_bright_blue()).on_blue()
+                }
+            }),
             Self::Time(s) => print!("{}", s.on_yellow()),
             Self::Cmd(v) => {
+                // overline; so the literal values are detected
+                print!("\x1B[53m");
                 print!("{}", "$(".on_red());
-                v.iter().for_each(|p| p.print());
+                v.iter().for_each(|p| {
+                    print!("\x1B[53m");
+                    p.print();
+                });
+                print!("\x1B[53m");
                 print!("{}", ")".on_red());
             }
             Self::Any(v) => {
-                print!("{}", "{{".on_red());
                 v[..(v.len() - 1)].iter().for_each(|p| {
+                    // underline; so the literal values are detected
+                    print!("\x1B[4m");
                     p.print();
-                    print!("{}", OPTIONAL_RENDER_CHAR);
+                    print!("\x1B[4m");
+                    print!("{}", OPTIONAL_RENDER_CHAR.to_string().on_yellow());
                 });
+                print!("\x1B[4m");
                 v.iter().last().unwrap().print();
-                print!("{}", "}}".on_red());
+                print!("\x1B[0m");
             }
         }
     }

@@ -20,3 +20,11 @@ lazy_static = "1.4.0"
 regex = "1.9.5"
 subprocess = "0.2.9"
 titlecase = "2.2.1"
+
+[lib]
+name = "string_template_plus"
+path = "src/lib.rs"
+
+[[bin]]
+name = "string-template-plus-visualize"
+path = "src/bin/visual-test.rs"
