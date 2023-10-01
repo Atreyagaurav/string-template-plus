@@ -33,6 +33,9 @@ use titlecase::titlecase;
 pub fn apply_tranformers(val: &str, transformations: &str) -> Result<String, TransformerError> {
     let mut val: String = val.to_string();
     for tstr in transformations.split(VAR_TRANSFORM_SEP_CHAR) {
+        if tstr.is_empty() {
+            continue;
+        }
         let (name, args) = tstr.split_once('(').unwrap();
         let args: Vec<&str> = args.strip_suffix(')').unwrap().split(',').collect();
         val = match name {

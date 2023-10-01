@@ -25,10 +25,10 @@ Simple variables:
 # use std::error::Error;
 # use std::collections::HashMap;
 # use std::path::PathBuf;
-# use string_template_plus::{Render, RenderOptions, parse_template};
+# use string_template_plus::{Render, RenderOptions, Template};
 #
 # fn main() -> Result<(), Box<dyn Error>> {
-let templ = parse_template("hello {name}").unwrap();
+let templ = Template::parse_template("hello {name}").unwrap();
 let mut vars: HashMap<String, String> = HashMap::new();
 vars.insert("name".into(), "world".into());
 let rendered = templ
@@ -47,10 +47,10 @@ Safe replace, blank if not present, or literal string if not present:
 # use std::error::Error;
 # use std::collections::HashMap;
 # use std::path::PathBuf;
-# use string_template_plus::{Render, RenderOptions, parse_template};
+# use string_template_plus::{Render, RenderOptions, Template};
 #
 # fn main() -> Result<(), Box<dyn Error>> {
-let templ = parse_template("hello {name?} {lastname?\"User\"}").unwrap();
+let templ = Template::parse_template("hello {name?} {lastname?\"User\"}").unwrap();
 let vars: HashMap<String, String> = HashMap::new();
 let rendered = templ
 .render(&RenderOptions {
@@ -68,10 +68,10 @@ Alternate, whichever variable it finds first will be replaced:
 # use std::error::Error;
 # use std::collections::HashMap;
 # use std::path::PathBuf;
-# use string_template_plus::{Render, RenderOptions, parse_template};
+# use string_template_plus::{Render, RenderOptions, Template};
 #
 # fn main() -> Result<(), Box<dyn Error>> {
-let templ = parse_template("hello {nickname?name}").unwrap();
+let templ = Template::parse_template("hello {nickname?name}").unwrap();
 let mut vars: HashMap<String, String> = HashMap::new();
 vars.insert("name".into(), "world".into());
 let rendered = templ
@@ -90,10 +90,10 @@ Custom Commands:
 # use std::error::Error;
 # use std::collections::HashMap;
 # use std::path::PathBuf;
-# use string_template_plus::{Render, RenderOptions, parse_template};
+# use string_template_plus::{Render, RenderOptions, Template};
 #
 # fn main() -> Result<(), Box<dyn Error>> {
-let templ = parse_template("L=$(printf \"%.2f\" {length})").unwrap();
+let templ = Template::parse_template("L=$(printf \"%.2f\" {length})").unwrap();
 let mut vars: HashMap<String, String> = HashMap::new();
 vars.insert("length".into(), "12.342323".into());
 let rendered = templ
@@ -113,10 +113,10 @@ You can turn off Custom Commands for safety:
 # use std::error::Error;
 # use std::collections::HashMap;
 # use std::path::PathBuf;
-# use string_template_plus::{Render, RenderOptions, parse_template};
+# use string_template_plus::{Render, RenderOptions, Template};
 #
 # fn main() -> Result<(), Box<dyn Error>> {
-let templ = parse_template("L=$(printf \"%.2f\" {length})").unwrap();
+let templ = Template::parse_template("L=$(printf \"%.2f\" {length})").unwrap();
 let mut vars: HashMap<String, String> = HashMap::new();
 vars.insert("length".into(), "12.342323".into());
 let rendered = templ
@@ -137,10 +137,10 @@ Date Time:
 # use std::collections::HashMap;
 # use std::path::PathBuf;
 # use chrono::Local;
-# use string_template_plus::{Render, RenderOptions, parse_template};
+# use string_template_plus::{Render, RenderOptions, Template};
 #
 # fn main() -> Result<(), Box<dyn Error>> {
-let templ = parse_template("hello {name} at {%Y-%m-%d}").unwrap();
+let templ = Template::parse_template("hello {name} at {%Y-%m-%d}").unwrap();
 let timefmt = Local::now().format("%Y-%m-%d");
 let output = format!("hello world at {}", timefmt);
 let mut vars: HashMap<String, String> = HashMap::new();
@@ -164,7 +164,7 @@ Although there is no format strings, there are transformer functions that can fo
 # use std::collections::HashMap;
 # use std::path::PathBuf;
 # use chrono::Local;
-# use string_template_plus::{Render, RenderOptions, parse_template};
+# use string_template_plus::{Render, RenderOptions, Template};
 #
 # fn main() -> Result<(), Box<dyn Error>> {
 let mut vars: HashMap<String, String> = HashMap::new();
@@ -188,7 +188,7 @@ let cases = [
 ];
 
 for (t, r) in cases {
- let templ = parse_template(t).unwrap();
+ let templ = Template::parse_template(t).unwrap();
  let rendered = templ.render(&options).unwrap();
  assert_eq!(rendered, r);
  }
@@ -202,8 +202,9 @@ for (t, r) in cases {
 - Currently doesn't have format specifiers, for now you can use the command options with `printf` bash command to format things the way you want, or use the transformers which have limited formatting capabilities.
 Like a template `this is $(printf "%05.2f" {weight}) kg.` should be rendered with the correct float formatting.
 */
-use anyhow::{Context, Error};
+use anyhow::Error;
 use chrono::Local;
+use colored::Colorize;
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::collections::HashMap;
@@ -269,16 +270,85 @@ pub enum TemplatePart {
     Any(Vec<TemplatePart>),
 }
 
+impl TemplatePart {
+    /// Parse a single [`TemplatePart`] from `str`, It can only parse [`TemplatePart::Lit`], [`TemplatePart::Time`], and [`TemplatePart::Var`].
+    fn parse_single_part(part: &str) -> Self {
+        if LITERAL_REPLACEMENTS.contains(&part) {
+            Self::Lit(part.to_string())
+        } else if part.starts_with(LITERAL_VALUE_QUOTE_CHAR)
+            && part.ends_with(LITERAL_VALUE_QUOTE_CHAR)
+        {
+            Self::Lit(part[1..(part.len() - 1)].to_string())
+        } else if part.starts_with(TIME_FORMAT_CHAR) {
+            Self::Time(part.to_string())
+        } else if let Some((v, f)) = part.split_once(VAR_TRANSFORM_SEP_CHAR) {
+            Self::Var(v.to_string(), f.to_string())
+        } else {
+            Self::Var(part.to_string(), "".to_string())
+        }
+    }
+
+    /// Parse variables in a `str` into [`Vec<TemplatePart>`]. It can parse all types except [`TemplatePart::Cmd`]
+    fn parse_variables(templ: &str) -> Vec<Self> {
+        let mut last_match = 0usize;
+        let mut template_parts = Vec::new();
+        for cap in VARIABLE_REGEX.captures_iter(templ) {
+            let m = cap.get(0).unwrap();
+            template_parts.push(Self::Lit(templ[last_match..m.start()].to_string()));
+
+            let cg = cap.get(1).unwrap();
+            let cap_slice = &templ[cg.start()..cg.end()];
+            if cap_slice.contains(OPTIONAL_RENDER_CHAR) {
+                let parts = cap_slice
+                    .split(OPTIONAL_RENDER_CHAR)
+                    .map(|s| s.trim())
+                    .map(Self::parse_single_part)
+                    .collect();
+
+                template_parts.push(Self::Any(parts));
+            } else {
+                template_parts.push(Self::parse_single_part(cap_slice));
+            }
+            last_match = m.end();
+        }
+        if !templ[last_match..].is_empty() {
+            template_parts.push(Self::Lit(templ[last_match..].to_string()));
+        }
+
+        template_parts
+    }
+}
+
+impl ToString for TemplatePart {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Lit(s) => format!("{0}{1}{0}", LITERAL_VALUE_QUOTE_CHAR, s),
+            Self::Var(s, _) => s.to_string(),
+            Self::Time(s) => s.to_string(),
+            Self::Cmd(v) => v
+                .iter()
+                .map(|p| p.to_string())
+                .collect::<Vec<String>>()
+                .join(""),
+            Self::Any(v) => v
+                .iter()
+                .map(|p| p.to_string())
+                .collect::<Vec<String>>()
+                .join(OPTIONAL_RENDER_CHAR.to_string().as_str()),
+        }
+    }
+}
+
 /// Main Template that get's passed around, consists of `[Vec`] of [`TemplatePart`]
 ///
 /// ```rust
 /// # use std::error::Error;
 /// # use std::collections::HashMap;
 /// # use std::path::PathBuf;
-/// # use string_template_plus::{Render, RenderOptions, parse_template};
+/// # use string_template_plus::{Render, RenderOptions, Template};
 /// #
 /// # fn main() -> Result<(), Box<dyn Error>> {
-///     let templ = parse_template("hello {nickname?name}. You're $(printf \"%.1f\" {weight})kg").unwrap();
+///     let templ = Template::parse_template("hello {nickname?name}. You're $(printf \"%.1f\" {weight})kg").unwrap();
 ///     let mut vars: HashMap<String, String> = HashMap::new();
 ///     vars.insert("name".into(), "John".into());
 ///     vars.insert("weight".into(), "132.3423".into());
@@ -292,11 +362,66 @@ pub enum TemplatePart {
 ///     assert_eq!(rendered, "hello John. You're 132.3kg");
 /// # Ok(())
 /// }
-pub type Template = Vec<TemplatePart>;
+#[derive(Debug, Clone)]
+pub struct Template {
+    original: String,
+    parts: Vec<TemplatePart>,
+}
+
+impl Template {
+    /// Parses the template from string and makes a [`Template`]. Which you can render later./// Main Template that get's passed around, consists of `[Vec`] of [`TemplatePart`]
+    ///
+    /// ```rust
+    /// # use std::error::Error;
+    /// # use std::collections::HashMap;
+    /// # use std::path::PathBuf;
+    /// # use string_template_plus::{Render, RenderOptions, Template};
+    /// #
+    /// # fn main() -> Result<(), Box<dyn Error>> {
+    ///     let templ = Template::parse_template("hello {nickname?name?}. You're $(printf \"%.1f\" {weight})kg").unwrap();
+    ///     let parts = concat!("[Lit(\"hello \"), ",
+    ///                         "Any([Var(\"nickname\", \"\"), Var(\"name\", \"\"), Lit(\"\")]), ",
+    ///                         "Lit(\". You're \"), ",
+    ///                         "Cmd([Lit(\"printf \\\"%.1f\\\" \"), Var(\"weight\", \"\")]), ",
+    ///                         "Lit(\"kg\")]");
+    ///     assert_eq!(parts, format!("{:?}", templ.parts()));
+    /// # Ok(())
+    /// }
+    pub fn parse_template(templ_str: &str) -> Result<Template, Error> {
+        let mut last_match = 0usize;
+        let mut template_parts = Vec::new();
+        for cmd in SHELL_COMMAND_REGEX.captures_iter(templ_str) {
+            let m = cmd.get(0).unwrap();
+            let cmd = cmd.get(1).unwrap();
+            let mut pts = TemplatePart::parse_variables(&templ_str[last_match..m.start()]);
+            template_parts.append(&mut pts);
+            template_parts.push(TemplatePart::Cmd(TemplatePart::parse_variables(
+                &templ_str[cmd.start()..cmd.end()],
+            )));
+            last_match = m.end();
+        }
+        let mut pts = TemplatePart::parse_variables(&templ_str[last_match..]);
+        template_parts.append(&mut pts);
+        Ok(Self {
+            original: templ_str.to_string(),
+            parts: template_parts,
+        })
+    }
+
+    pub fn parts(&self) -> &Vec<TemplatePart> {
+        &self.parts
+    }
+
+    pub fn original(&self) -> &str {
+        &self.original
+    }
+}
 
 /// Provides the function to render the object with [`RenderOptions`] into [`String`]
 pub trait Render {
     fn render(&self, op: &RenderOptions) -> Result<String, Error>;
+
+    fn print(&self);
 }
 
 /// Options for the [`Template`] to render into [`String`]
@@ -320,10 +445,10 @@ impl RenderOptions {
     /// ```rust
     /// # use std::error::Error;
     /// # use std::collections::HashMap;
-    /// # use string_template_plus::{Render, RenderOptions, parse_template};
+    /// # use string_template_plus::{Render, RenderOptions, Template};
     /// #
     /// # fn main() -> Result<(), Box<dyn Error>> {
-    ///     let templ = parse_template("hello {name}").unwrap();
+    ///     let templ = Template::parse_template("hello {name}").unwrap();
     ///     let mut vars: HashMap<String, String> = HashMap::new();
     ///     vars.insert("name".into(), "world".into());
     ///     let options = RenderOptions {
@@ -353,10 +478,10 @@ impl RenderOptions {
 /// ```rust
 /// # use std::error::Error;
 /// # use std::collections::HashMap;
-/// # use string_template_plus::{Render, RenderOptions, RenderIter, parse_template};
+/// # use string_template_plus::{Render, RenderOptions, RenderIter, Template};
 /// #
 /// # fn main() -> Result<(), Box<dyn Error>> {
-///     let templ = parse_template("hello {name}").unwrap();
+///     let templ = Template::parse_template("hello {name}").unwrap();
 ///     let mut vars: HashMap<String, String> = HashMap::new();
 ///     vars.insert("name".into(), "world".into());
 ///     let options = RenderOptions {
@@ -397,15 +522,6 @@ impl<'a> Iterator for RenderIter<'a> {
     }
 }
 
-/// Support for Format Specifier [not well tested]
-fn transform_variable(val: &str, format: &str) -> Result<String, Error> {
-    if format.is_empty() {
-        Ok(val.to_string())
-    } else {
-        Ok(transformers::apply_tranformers(val, format)?)
-    }
-}
-
 impl Render for TemplatePart {
     fn render(&self, op: &RenderOptions) -> Result<String, Error> {
         match self {
@@ -413,8 +529,8 @@ impl Render for TemplatePart {
             TemplatePart::Var(v, f) => op
                 .variables
                 .get(v)
-                .context("No such variable in the RenderOptions")
-                .map(|s| transform_variable(s, f))?,
+                .ok_or(errors::RenderTemplateError::VariableNotFound(v.to_string()))
+                .map(|s| -> Result<String, Error> { Ok(transformers::apply_tranformers(s, f)?) })?,
             TemplatePart::Time(t) => Ok(Local::now().format(t).to_string()),
             TemplatePart::Cmd(c) => {
                 let cmd = c.render(op)?;
@@ -424,104 +540,58 @@ impl Render for TemplatePart {
                     Ok(format!("$({cmd})"))
                 }
             }
-            TemplatePart::Any(a) => a
-                .iter()
-                .filter_map(|p| p.render(op).ok())
-                .next()
-                .context("None of the alternatives given were found"),
+            TemplatePart::Any(a) => a.iter().find_map(|p| p.render(op).ok()).ok_or(
+                errors::RenderTemplateError::AllVariablesNotFound(
+                    a.iter().map(|p| p.to_string()).collect(),
+                )
+                .into(),
+            ),
+        }
+    }
+    fn print(&self) {
+        match self {
+            Self::Lit(s) => print!("{}", s.on_white()),
+            Self::Var(s, sf) => print!("{}", format!("{}:{}", s.on_bright_blue(), sf).on_blue()),
+            Self::Time(s) => print!("{}", s.on_yellow()),
+            Self::Cmd(v) => {
+                print!("{}", "$(".on_red());
+                v.iter().for_each(|p| p.print());
+                print!("{}", ")".on_red());
+            }
+            Self::Any(v) => {
+                print!("{}", "{{".on_red());
+                v[..(v.len() - 1)].iter().for_each(|p| {
+                    p.print();
+                    print!("{}", OPTIONAL_RENDER_CHAR);
+                });
+                v.iter().last().unwrap().print();
+                print!("{}", "}}".on_red());
+            }
         }
     }
 }
 
-impl Render for Template {
+impl Render for Vec<TemplatePart> {
     fn render(&self, op: &RenderOptions) -> Result<String, Error> {
         self.iter()
             .map(|p| p.render(op))
             .collect::<Result<Vec<String>, Error>>()
             .map(|v| v.join(""))
     }
-}
 
-/// Parse a single [`TemplatePart`] from `str`, It can only parse [`TemplatePart::Lit`], [`TemplatePart::Time`], and [`TemplatePart::Var`].
-fn parse_single_part(part: &str) -> TemplatePart {
-    if LITERAL_REPLACEMENTS.contains(&part) {
-        TemplatePart::Lit(part.to_string())
-    } else if part.starts_with(LITERAL_VALUE_QUOTE_CHAR) && part.ends_with(LITERAL_VALUE_QUOTE_CHAR)
-    {
-        TemplatePart::Lit(part[1..(part.len() - 1)].to_string())
-    } else if part.starts_with(TIME_FORMAT_CHAR) {
-        TemplatePart::Time(part.to_string())
-    } else if let Some((v, f)) = part.split_once(VAR_TRANSFORM_SEP_CHAR) {
-        TemplatePart::Var(v.to_string(), f.to_string())
-    } else {
-        TemplatePart::Var(part.to_string(), "".to_string())
+    fn print(&self) {
+        self.iter().for_each(|p| p.print());
     }
 }
 
-/// Parse variables in a `str` into [`Template`]. It can parse all types except [`TemplatePart::Cmd`]
-fn parse_variables(templ: &str) -> Template {
-    let mut last_match = 0usize;
-    let mut template_parts = Vec::new();
-    for cap in VARIABLE_REGEX.captures_iter(templ) {
-        let m = cap.get(0).unwrap();
-        template_parts.push(TemplatePart::Lit(templ[last_match..m.start()].to_string()));
-
-        let cg = cap.get(1).unwrap();
-        let cap_slice = &templ[cg.start()..cg.end()];
-        if cap_slice.contains(OPTIONAL_RENDER_CHAR) {
-            let parts = cap_slice
-                .split(OPTIONAL_RENDER_CHAR)
-                .map(|s| s.trim())
-                .map(parse_single_part)
-                .collect();
-
-            template_parts.push(TemplatePart::Any(parts));
-        } else {
-            template_parts.push(parse_single_part(cap_slice));
-        }
-        last_match = m.end();
-    }
-    if !templ[last_match..].is_empty() {
-        template_parts.push(TemplatePart::Lit(templ[last_match..].to_string()));
+impl Render for Template {
+    fn render(&self, op: &RenderOptions) -> Result<String, Error> {
+        self.parts.render(op)
     }
 
-    template_parts
-}
-
-/// Parses the template from string and makes a [`Template`]. Which you can render later./// Main Template that get's passed around, consists of `[Vec`] of [`TemplatePart`]
-///
-/// ```rust
-/// # use std::error::Error;
-/// # use std::collections::HashMap;
-/// # use std::path::PathBuf;
-/// # use string_template_plus::{Render, RenderOptions, parse_template};
-/// #
-/// # fn main() -> Result<(), Box<dyn Error>> {
-///     let templ = parse_template("hello {nickname?name?}. You're $(printf \"%.1f\" {weight})kg").unwrap();
-///     let parts = concat!("[Lit(\"hello \"), ",
-///                         "Any([Var(\"nickname\", \"\"), Var(\"name\", \"\"), Lit(\"\")]), ",
-///                         "Lit(\". You're \"), ",
-///                         "Cmd([Lit(\"printf \\\"%.1f\\\" \"), Var(\"weight\", \"\")]), ",
-///                         "Lit(\"kg\")]");
-///     assert_eq!(parts, format!("{:?}", templ));
-/// # Ok(())
-/// }
-pub fn parse_template(templ_str: &str) -> Result<Template, Error> {
-    let mut last_match = 0usize;
-    let mut template_parts = Vec::new();
-    for cmd in SHELL_COMMAND_REGEX.captures_iter(templ_str) {
-        let m = cmd.get(0).unwrap();
-        let cmd = cmd.get(1).unwrap();
-        let mut pts = parse_variables(&templ_str[last_match..m.start()]);
-        template_parts.append(&mut pts);
-        template_parts.push(TemplatePart::Cmd(parse_variables(
-            &templ_str[cmd.start()..cmd.end()],
-        )));
-        last_match = m.end();
+    fn print(&self) {
+        self.parts.print();
     }
-    let mut pts = parse_variables(&templ_str[last_match..]);
-    template_parts.append(&mut pts);
-    Ok(template_parts)
 }
 
 #[cfg(test)]
@@ -530,7 +600,7 @@ mod tests {
 
     #[test]
     fn test_lit() {
-        let templ = parse_template("hello name").unwrap();
+        let templ = Template::parse_template("hello name").unwrap();
         let mut vars: HashMap<String, String> = HashMap::new();
         vars.insert("name".into(), "world".into());
         let rendered = templ
@@ -544,7 +614,7 @@ mod tests {
 
     #[test]
     fn test_vars() {
-        let templ = parse_template("hello {name}").unwrap();
+        let templ = Template::parse_template("hello {name}").unwrap();
         let mut vars: HashMap<String, String> = HashMap::new();
         vars.insert("name".into(), "world".into());
         let rendered = templ
@@ -580,7 +650,7 @@ mod tests {
         ];
 
         for (t, r) in cases {
-            let templ = parse_template(t).unwrap();
+            let templ = Template::parse_template(t).unwrap();
             let rendered = templ.render(&options).unwrap();
             assert_eq!(rendered, r);
         }
@@ -589,7 +659,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_novars() {
-        let templ = parse_template("hello {name}").unwrap();
+        let templ = Template::parse_template("hello {name}").unwrap();
         let vars: HashMap<String, String> = HashMap::new();
         templ
             .render(&RenderOptions {
@@ -601,7 +671,7 @@ mod tests {
 
     #[test]
     fn test_novars_opt() {
-        let templ = parse_template("hello {name?}").unwrap();
+        let templ = Template::parse_template("hello {name?}").unwrap();
         let vars: HashMap<String, String> = HashMap::new();
         let rendered = templ
             .render(&RenderOptions {
@@ -614,7 +684,7 @@ mod tests {
 
     #[test]
     fn test_optional() {
-        let templ = parse_template("hello {age?name}").unwrap();
+        let templ = Template::parse_template("hello {age?name}").unwrap();
         let mut vars: HashMap<String, String> = HashMap::new();
         vars.insert("name".into(), "world".into());
         let rendered = templ
@@ -628,14 +698,14 @@ mod tests {
 
     #[test]
     fn test_special_chars() {
-        let templ = parse_template("$hello {}? {{}{}}%").unwrap();
+        let templ = Template::parse_template("$hello {}? {{}{}}%").unwrap();
         let rendered = templ.render(&RenderOptions::default()).unwrap();
         assert_eq!(rendered, "$hello ? {}%");
     }
 
     #[test]
     fn test_optional_lit() {
-        let templ = parse_template("hello {age?\"20\"}").unwrap();
+        let templ = Template::parse_template("hello {age?\"20\"}").unwrap();
         let mut vars: HashMap<String, String> = HashMap::new();
         vars.insert("name".into(), "world".into());
         let rendered = templ
@@ -649,7 +719,7 @@ mod tests {
 
     #[test]
     fn test_command() {
-        let templ = parse_template("hello $(echo {name})").unwrap();
+        let templ = Template::parse_template("hello $(echo {name})").unwrap();
         let mut vars: HashMap<String, String> = HashMap::new();
         vars.insert("name".into(), "world".into());
         let rendered = templ
@@ -664,7 +734,7 @@ mod tests {
 
     #[test]
     fn test_time() {
-        let templ = parse_template("hello {name} at {%Y-%m-%d}").unwrap();
+        let templ = Template::parse_template("hello {name} at {%Y-%m-%d}").unwrap();
         let timefmt = Local::now().format("%Y-%m-%d");
         let output = format!("hello world at {}", timefmt);
         let mut vars: HashMap<String, String> = HashMap::new();
@@ -681,7 +751,7 @@ mod tests {
 
     #[test]
     fn test_var_or_time() {
-        let templ = parse_template("hello {name} at {age?%Y-%m-%d}").unwrap();
+        let templ = Template::parse_template("hello {name} at {age?%Y-%m-%d}").unwrap();
         let timefmt = Local::now().format("%Y-%m-%d");
         let output = format!("hello world at {}", timefmt);
         let mut vars: HashMap<String, String> = HashMap::new();
@@ -698,7 +768,7 @@ mod tests {
 
     #[test]
     fn test_render_iter() {
-        let templ = parse_template("hello {name}").unwrap();
+        let templ = Template::parse_template("hello {name}").unwrap();
         let mut vars: HashMap<String, String> = HashMap::new();
         vars.insert("name".into(), "world".into());
         let options = RenderOptions {

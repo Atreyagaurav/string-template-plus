@@ -1,5 +1,18 @@
 use std::{error::Error, fmt};
 
+/// Errors for the render template
+#[derive(Debug)]
+pub enum RenderTemplateError {
+    /// The Template is not correctly formatted,
+    InvalidFormat(String),
+    /// Variable not found
+    VariableNotFound(String),
+    /// Any of the multiple Variables not found
+    AllVariablesNotFound(Vec<String>),
+    /// Error from Transformers
+    TransformerError(TransformerError),
+}
+
 /// Errors for the transformers
 #[derive(Debug)]
 pub enum TransformerError {
@@ -15,7 +28,14 @@ pub enum TransformerError {
     InvalidArgumentType(&'static str, String, &'static str),
 }
 
+impl Error for RenderTemplateError {}
 impl Error for TransformerError {}
+
+impl From<TransformerError> for RenderTemplateError {
+    fn from(item: TransformerError) -> Self {
+        Self::TransformerError(item)
+    }
+}
 
 impl fmt::Display for TransformerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -33,6 +53,23 @@ impl fmt::Display for TransformerError {
             Self::InvalidArgumentType(fun, g, t) => {
                 write!(f, "{fun} argument {g} needs to be of {t} type")
             }
+        }
+    }
+}
+
+impl fmt::Display for RenderTemplateError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::InvalidFormat(fstr) => {
+                write!(f, "Invalid Template format: {fstr}")
+            }
+            Self::VariableNotFound(var) => {
+                write!(f, "Variable {var} not found")
+            }
+            Self::AllVariablesNotFound(vars) => {
+                write!(f, "None of the variables {vars:?} found")
+            }
+            Self::TransformerError(e) => e.fmt(f),
         }
     }
 }
