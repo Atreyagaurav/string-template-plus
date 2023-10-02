@@ -1,1 +1,1 @@
-more {formatting?} options on {%F} and \\latex\{command\}, should work.
+more {formatting?} options on {%F} and \\latex\{command\}\{with {variable}\}, should work.

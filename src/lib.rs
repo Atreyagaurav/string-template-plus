@@ -523,6 +523,19 @@ impl Template {
     pub fn original(&self) -> &str {
         &self.original
     }
+
+    /// Concatenated String if [`Template`] is only literal strings
+    pub fn lit(&self) -> Option<String> {
+        let mut lit = String::new();
+        for part in &self.parts {
+            if let TemplatePart::Lit(l) = part {
+                lit.push_str(l);
+            } else {
+                return None;
+            }
+        }
+        Some(lit)
+    }
 }
 
 /// Provides the function to render the object with [`RenderOptions`] into [`String`]

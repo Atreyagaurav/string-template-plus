@@ -1,1 +1,1 @@
-hi looks {like?a?"test"} for $(this doesn't {work:case(up)})
+hi looks {like?a?"test"} for $(this does {work:case(up)} now) (yay)
