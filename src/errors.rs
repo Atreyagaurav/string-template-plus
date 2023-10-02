@@ -4,7 +4,7 @@ use std::{error::Error, fmt};
 #[derive(Debug)]
 pub enum RenderTemplateError {
     /// The Template is not correctly formatted,
-    InvalidFormat(String),
+    InvalidFormat(String, String),
     /// Variable not found
     VariableNotFound(String),
     /// Any of the multiple Variables not found
@@ -60,8 +60,8 @@ impl fmt::Display for TransformerError {
 impl fmt::Display for RenderTemplateError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Self::InvalidFormat(fstr) => {
-                write!(f, "Invalid Template format: {fstr}")
+            Self::InvalidFormat(fstr, msg) => {
+                write!(f, "Invalid Template: {fstr} => {msg}")
             }
             Self::VariableNotFound(var) => {
                 write!(f, "Variable {var} not found")

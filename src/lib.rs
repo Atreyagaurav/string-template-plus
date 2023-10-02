@@ -129,7 +129,7 @@ variables: vars,
 shell_commands: false,
             })
             .unwrap();
-        assert_eq!(rendered, "L=$(printf \"%.2f\" 12.342323)");
+        assert_eq!(rendered, "L=$(printf %.2f 12.342323)");
 # Ok(())
 # }
 ```
@@ -207,9 +207,8 @@ Like a template `this is $(printf "%05.2f" {weight}) kg.` should be rendered wit
 */
 use anyhow::Error;
 use chrono::Local;
-use colored::{Color, ColoredString, Colorize, Styles};
+use colored::Colorize;
 use lazy_static::lazy_static;
-use regex::Regex;
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
@@ -226,19 +225,14 @@ pub static TIME_FORMAT_CHAR: char = '%';
 pub static VAR_TRANSFORM_SEP_CHAR: char = ':';
 /// Quote characters to use to make a value literal instead of a variable. In combination with [`OPTIONAL_RENDER_CHAR`] it can be used as a default value when variable(s) is/are not present.
 pub static LITERAL_VALUE_QUOTE_CHAR: char = '"';
+/// Character to escape special meaning characters
+pub static ESCAPE_CHAR: char = '\\';
 /// Characters that should be replaced as themselves if presented as a variable
 static LITERAL_REPLACEMENTS: [&str; 3] = [
     "",  // to replace {} as empty string.
     "{", // to replace {{} as {
     "}", // to replace {}} as }
 ];
-
-lazy_static! {
-    /// Regex to capture the variable from the template, anything inside `{}`
-    pub static ref VARIABLE_REGEX: Regex = Regex::new(r"\{(.*?)\}").unwrap();
-    /// Regex to capture the Shell Command part in the template
-    pub static ref SHELL_COMMAND_REGEX: Regex = Regex::new(r"[$]\((.*?)\)").unwrap();
-}
 
 /// Runs a command and returns the output of the command or the error
 fn cmd_output(cmd: &str, wd: &PathBuf) -> Result<String, Error> {
@@ -273,55 +267,179 @@ pub enum TemplatePart {
     Any(Vec<TemplatePart>),
 }
 
+lazy_static! {
+    pub static ref TEMPLATE_PAIRS_START: [char; 3] = ['{', '"', '('];
+    pub static ref TEMPLATE_PAIRS_END: [char; 3] = ['}', '"', ')'];
+    pub static ref TEMPLATE_PAIRS: HashMap<char, char> = TEMPLATE_PAIRS_START
+        .iter()
+        .zip(TEMPLATE_PAIRS_END.iter())
+        .map(|(k, v)| (*k, *v))
+        .collect();
+}
+
 impl TemplatePart {
-    /// Parse a single [`TemplatePart`] from `str`, It can only parse [`TemplatePart::Lit`], [`TemplatePart::Time`], and [`TemplatePart::Var`].
-    fn parse_single_part(part: &str) -> Self {
-        if LITERAL_REPLACEMENTS.contains(&part) {
-            Self::Lit(part.to_string())
-        } else if part.starts_with(LITERAL_VALUE_QUOTE_CHAR)
-            && part.ends_with(LITERAL_VALUE_QUOTE_CHAR)
-        {
-            Self::Lit(part[1..(part.len() - 1)].to_string())
-        } else if part.starts_with(TIME_FORMAT_CHAR) {
-            Self::Time(part.to_string())
-        } else if let Some((v, f)) = part.split_once(VAR_TRANSFORM_SEP_CHAR) {
-            Self::Var(v.to_string(), f.to_string())
+    pub fn lit(part: &str) -> Self {
+        Self::Lit(part.to_string())
+    }
+    pub fn var(part: &str) -> Self {
+        if let Some((part, fstr)) = part.split_once(VAR_TRANSFORM_SEP_CHAR) {
+            Self::Var(part.to_string(), fstr.to_string())
         } else {
             Self::Var(part.to_string(), "".to_string())
         }
     }
 
-    /// Parse variables in a `str` into [`Vec<TemplatePart>`]. It can parse all types except [`TemplatePart::Cmd`]
-    fn parse_variables(templ: &str) -> Vec<Self> {
-        let mut last_match = 0usize;
-        let mut template_parts = Vec::new();
-        for cap in VARIABLE_REGEX.captures_iter(templ) {
-            let m = cap.get(0).unwrap();
-            template_parts.push(Self::Lit(templ[last_match..m.start()].to_string()));
+    pub fn time(part: &str) -> Self {
+        Self::Time(part.to_string())
+    }
 
-            let cg = cap.get(1).unwrap();
-            let cap_slice = &templ[cg.start()..cg.end()];
-            if cap_slice.contains(OPTIONAL_RENDER_CHAR) {
-                let parts = cap_slice
-                    .split(OPTIONAL_RENDER_CHAR)
-                    .map(|s| s.trim())
-                    .map(Self::parse_single_part)
-                    .collect();
+    /// Parse a [`&str`] into [`TemplatePart::Lit`], [`TemplatePart::Time`], or [`TemplatePart::Var`]
+    pub fn maybe_var(part: &str) -> Self {
+        if LITERAL_REPLACEMENTS.contains(&part) {
+            Self::lit(part)
+        } else if part.starts_with(LITERAL_VALUE_QUOTE_CHAR)
+            && part.ends_with(LITERAL_VALUE_QUOTE_CHAR)
+        {
+            Self::lit(&part[1..(part.len() - 1)])
+        } else if part.starts_with(TIME_FORMAT_CHAR) {
+            Self::time(part)
+        } else {
+            Self::var(part)
+        }
+    }
 
-                template_parts.push(Self::Any(parts));
-            } else {
-                template_parts.push(Self::parse_single_part(cap_slice));
+    pub fn cmd(parts: Vec<TemplatePart>) -> Self {
+        Self::Cmd(parts)
+    }
+
+    pub fn parse_cmd(part: &str) -> Result<Self, errors::RenderTemplateError> {
+        Self::tokenize(part).map(Self::cmd)
+    }
+
+    pub fn any(parts: Vec<TemplatePart>) -> Self {
+        Self::Any(parts)
+    }
+
+    pub fn maybe_any(part: &str) -> Self {
+        if part.contains(OPTIONAL_RENDER_CHAR) {
+            let parts = part
+                .split(OPTIONAL_RENDER_CHAR)
+                .map(|s| s.trim())
+                .map(Self::maybe_var)
+                .collect();
+
+            Self::any(parts)
+        } else {
+            Self::maybe_var(part)
+        }
+    }
+
+    fn find_end(
+        end: char,
+        templ: &str,
+        offset: usize,
+    ) -> Result<usize, errors::RenderTemplateError> {
+        if end == '"' {
+            return templ[offset..].find(end).map(|i| i + offset).ok_or(
+                errors::RenderTemplateError::InvalidFormat(
+                    templ.to_string(),
+                    "Quote not closed".to_string(),
+                ),
+            );
+        }
+        let mut nest: Vec<char> = Vec::new();
+        for (i, c) in templ[offset..].chars().enumerate() {
+            if c == end && nest.is_empty() {
+                return Ok(offset + i);
+            } else if TEMPLATE_PAIRS_START.contains(&c) {
+                if c == '"' {
+                    if nest.contains(&c) {
+                        while Some('"') != nest.pop() {}
+                        continue;
+                    }
+                }
+                nest.push(c);
+            } else if TEMPLATE_PAIRS_END.contains(&c) {
+                if let Some(last) = nest.pop() {
+                    if c != TEMPLATE_PAIRS[&last] {
+                        return Err(errors::RenderTemplateError::InvalidFormat(
+                            templ.to_string(),
+                            format!("Extra {} at [{}] in template", c, offset + i),
+                        ));
+                    }
+                } else {
+                    return Err(errors::RenderTemplateError::InvalidFormat(
+                        templ.to_string(),
+                        format!("Extra {} at [{}] in template", c, offset + i),
+                    ));
+                }
             }
-            last_match = m.end();
         }
-        if !templ[last_match..].is_empty() {
-            template_parts.push(Self::Lit(templ[last_match..].to_string()));
+        Err(errors::RenderTemplateError::InvalidFormat(
+            templ.to_string(),
+            format!(
+                "Closing {} not found from [{}] onwards in template",
+                end, offset,
+            ),
+        ))
+    }
+    pub fn tokenize(templ: &str) -> Result<Vec<Self>, errors::RenderTemplateError> {
+        let mut parts: Vec<TemplatePart> = Vec::new();
+        let mut last = 0usize;
+        let mut i = 0usize;
+        let mut escape = false;
+        while i < templ.len() {
+            if templ[i..].starts_with(ESCAPE_CHAR) {
+                if !escape {
+                    if i > last {
+                        parts.push(Self::lit(&templ[last..i]));
+                    }
+                    i += 1;
+                    last = i;
+                    escape = true;
+                    continue;
+                }
+            }
+            if escape {
+                parts.push(Self::lit(&templ[i..(i + 1)]));
+                last = i + 1;
+                i += 1;
+                escape = false;
+                continue;
+            }
+            if templ[i..].starts_with("$(") {
+                let end = Self::find_end(')', templ, i + 2)?;
+                if i > last {
+                    parts.push(Self::lit(&templ[last..i]));
+                }
+                last = end + 1;
+                parts.push(Self::parse_cmd(&templ[(i + 2)..end])?);
+                i = end;
+            } else if templ[i..].starts_with("{") {
+                let end = Self::find_end('}', templ, i + 1)?;
+                if i > last {
+                    parts.push(Self::lit(&templ[last..i]));
+                }
+                last = end + 1;
+                parts.push(Self::maybe_any(&templ[(i + 1)..end]));
+                i = end;
+            } else if templ[i..].starts_with("\"") {
+                let end = Self::find_end('"', templ, i + 1)?;
+                if i > last {
+                    parts.push(Self::lit(&templ[last..i]));
+                }
+                last = end + 1;
+                parts.push(Self::lit(&templ[(i + 1)..end]));
+                i = end;
+            }
+            i += 1;
         }
-
-        template_parts
+        if templ.len() > last {
+            parts.push(Self::lit(&templ[last..]));
+        }
+        Ok(parts)
     }
 }
-
 impl ToString for TemplatePart {
     fn to_string(&self) -> String {
         match self {
@@ -381,30 +499,17 @@ impl Template {
     /// # use string_template_plus::{Render, RenderOptions, Template};
     /// #
     /// # fn main() -> Result<(), Box<dyn Error>> {
-    ///     let templ = Template::parse_template("hello {nickname?name?}. You're $(printf \"%.1f\" {weight})kg").unwrap();
+    ///     let templ = Template::parse_template("hello {nickname?name?}. You're $(printf \\\"%.1f\\\" {weight})kg").unwrap();
     ///     let parts = concat!("[Lit(\"hello \"), ",
-    ///                         "Any([Var(\"nickname\", \"\"), Var(\"name\", \"\"), Lit(\"\")]), ",
-    ///                         "Lit(\". You're \"), ",
-    ///                         "Cmd([Lit(\"printf \\\"%.1f\\\" \"), Var(\"weight\", \"\")]), ",
-    ///                         "Lit(\"kg\")]");
+    ///                  "Any([Var(\"nickname\", \"\"), Var(\"name\", \"\"), Lit(\"\")]), ",
+    ///                  "Lit(\". You're \"), ",
+    ///                  "Cmd([Lit(\"printf \"), Lit(\"\\\"\"), Lit(\"%.1f\"), Lit(\"\\\"\"), Lit(\" \"), Var(\"weight\", \"\")]), ",
+    ///                  "Lit(\"kg\")]");
     ///     assert_eq!(parts, format!("{:?}", templ.parts()));
     /// # Ok(())
     /// }
     pub fn parse_template(templ_str: &str) -> Result<Template, Error> {
-        let mut last_match = 0usize;
-        let mut template_parts = Vec::new();
-        for cmd in SHELL_COMMAND_REGEX.captures_iter(templ_str) {
-            let m = cmd.get(0).unwrap();
-            let cmd = cmd.get(1).unwrap();
-            let mut pts = TemplatePart::parse_variables(&templ_str[last_match..m.start()]);
-            template_parts.append(&mut pts);
-            template_parts.push(TemplatePart::Cmd(TemplatePart::parse_variables(
-                &templ_str[cmd.start()..cmd.end()],
-            )));
-            last_match = m.end();
-        }
-        let mut pts = TemplatePart::parse_variables(&templ_str[last_match..]);
-        template_parts.append(&mut pts);
+        let template_parts = TemplatePart::tokenize(templ_str)?;
         Ok(Self {
             original: templ_str.to_string(),
             parts: template_parts,
@@ -717,7 +822,14 @@ mod tests {
 
     #[test]
     fn test_special_chars() {
-        let templ = Template::parse_template("$hello {}? {{}{}}%").unwrap();
+        let templ = Template::parse_template("$hello {}? \\{\\}%").unwrap();
+        let rendered = templ.render(&RenderOptions::default()).unwrap();
+        assert_eq!(rendered, "$hello ? {}%");
+    }
+
+    #[test]
+    fn test_special_chars2() {
+        let templ = Template::parse_template("$hello {}? \"{\"\"}\"%").unwrap();
         let rendered = templ.render(&RenderOptions::default()).unwrap();
         assert_eq!(rendered, "$hello ? {}%");
     }
@@ -749,6 +861,22 @@ mod tests {
             })
             .unwrap();
         assert_eq!(rendered, "hello world\n");
+    }
+
+    #[test]
+    fn test_command_quote() {
+        let templ = Template::parse_template("hello $(printf \\\"%s %d\\\" {name} {age})").unwrap();
+        let mut vars: HashMap<String, String> = HashMap::new();
+        vars.insert("name".into(), "world".into());
+        vars.insert("age".into(), "1".into());
+        let rendered = templ
+            .render(&RenderOptions {
+                wd: PathBuf::from("."),
+                variables: vars,
+                shell_commands: true,
+            })
+            .unwrap();
+        assert_eq!(rendered, "hello world 1");
     }
 
     #[test]
