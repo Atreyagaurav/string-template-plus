@@ -1,6 +1,6 @@
 [package]
 name = "string-template-plus"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 authors = ["Gaurav Atreya"]
 description = "Render string template with more options"

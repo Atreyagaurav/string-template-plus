@@ -38,8 +38,18 @@ pub fn apply_tranformers(val: &str, transformations: &str) -> Result<String, Tra
         if tstr.is_empty() {
             continue;
         }
-        let (name, args) = tstr.split_once('(').unwrap();
-        let args: Vec<&str> = args.strip_suffix(')').unwrap().split(',').collect();
+        let (name, args) = tstr.split_once('(').ok_or(TransformerError::InvalidSyntax(
+            tstr.to_string(),
+            "No opening paranthesis".to_string(),
+        ))?;
+        let args: Vec<&str> = args
+            .strip_suffix(')')
+            .ok_or(TransformerError::InvalidSyntax(
+                tstr.to_string(),
+                "No closing paranthesis".to_string(),
+            ))?
+            .split(',')
+            .collect();
         val = match name {
             "f" => float_format(&val, args)?,
             "case" => string_case(&val, args)?,

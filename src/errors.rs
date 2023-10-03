@@ -16,6 +16,8 @@ pub enum RenderTemplateError {
 /// Errors for the transformers
 #[derive(Debug)]
 pub enum TransformerError {
+    /// the Syntax is invalid
+    InvalidSyntax(String, String),
     /// The transformer with the name doesn't exist
     UnknownTranformer(String, String),
     /// Number of arguments is more than required
@@ -40,6 +42,9 @@ impl From<TransformerError> for RenderTemplateError {
 impl fmt::Display for TransformerError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
+            Self::InvalidSyntax(syn, msg) => {
+                write!(f, "{syn}: {msg}")
+            }
             Self::UnknownTranformer(fun, val) => {
                 write!(f, "{fun} transformer not found for value {val}")
             }
