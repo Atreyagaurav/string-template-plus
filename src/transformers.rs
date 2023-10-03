@@ -14,6 +14,8 @@ There are a few transformers available:
 | calc                 | [+-*\/^]N  | Airthmatic calculation   | {"1":calc(+1*2^2)} ⇒ 16  |
 | calc                 | [+-*\/^]N  | Airthmatic calculation   | {"1":calc(+1,-1)} ⇒ 2,0  |
 | count                | str       | count str occurance      | {"nata":count(a)} ⇒ 2    |
+| repl [`replace`]     | str1,str2 | replace str1 by str2     | {"nata":rep(a,o)} ⇒ noto |
+| q      [`quote`]     | [str1]    | quote with str1, or ""   | {"nata":q()} ⇒ "noto"    |
 
 You can chain transformers ones after another for combined actions. For example, `count( ):calc(+1)` will give you total number of words in a sentence.
 
@@ -43,6 +45,7 @@ pub fn apply_tranformers(val: &str, transformations: &str) -> Result<String, Tra
             "case" => string_case(&val, args)?,
             "calc" => calc(&val, args)?,
             "count" => count(&val, args)?,
+            "repl" => replace(&val, args)?,
             _ => {
                 return Err(TransformerError::UnknownTranformer(
                     name.to_string(),
@@ -54,11 +57,26 @@ pub fn apply_tranformers(val: &str, transformations: &str) -> Result<String, Tra
     Ok(val)
 }
 
-fn bound(b: Bound<&usize>, lower: bool) -> Option<usize> {
+/// Gets the bound of a rust range object
+///
+/// ```rust
+/// # use std::error::Error;
+/// # use string_template_plus::transformers::*;
+/// # use std::ops::RangeBounds;
+/// #
+/// # fn main() -> Result<(), Box<dyn Error>> {
+///     assert_eq!(bound((2..).end_bound(), true), None);
+///     assert_eq!(bound((..2).end_bound(), false), Some(1));
+///     assert_eq!(bound((..=2).end_bound(), false), Some(2));
+///     assert_eq!(bound((..2).start_bound(), true), None);
+///     assert_eq!(bound((0..).start_bound(), false), Some(0));
+/// # Ok(())
+/// # }
+pub fn bound(b: Bound<&usize>, lower: bool) -> Option<usize> {
     match b {
         Bound::Unbounded => None,
         Bound::Included(v) => Some(*v),
-        Bound::Excluded(v) => Some(if lower { v - 1 } else { v + 1 }),
+        Bound::Excluded(v) => Some(if lower { v + 1 } else { v - 1 }),
     }
 }
 
@@ -81,7 +99,7 @@ fn check_arguments_len<R: RangeBounds<usize>>(
                 if given < r1 {
                     Err(TransformerError::TooFewArguments(func_name, r1, given))
                 } else {
-                    Err(TransformerError::TooFewArguments(func_name, r2, given))
+                    Err(TransformerError::TooManyArguments(func_name, r2, given))
                 }
             }
             _ => Ok(()),
@@ -236,6 +254,7 @@ pub fn calc(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
 /// #
 /// # fn main() -> Result<(), Box<dyn Error>> {
 ///     assert_eq!(count("nata", vec!["a"])?, "2");
+///     assert_eq!(count("nata", vec!["a", "t"])?, "2,1");
 ///     assert_eq!(count("nata", vec![" "])?, "0");
 ///     assert_eq!(count("hi there fellow", vec![" "])?, "2");
 /// # Ok(())
@@ -248,4 +267,57 @@ pub fn count(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
         .map(|sep| val.matches(sep).count().to_string())
         .collect();
     Ok(counts.join(","))
+}
+
+/// Replace text in the string, by another text
+///
+/// ```rust
+/// # use std::error::Error;
+/// # use string_template_plus::transformers::*;
+/// #
+/// # fn main() -> Result<(), Box<dyn Error>> {
+///     assert_eq!(replace("nata", vec!["a", "o"])?, "noto");
+///     assert_eq!(replace("hi there fellow", vec![" ", "-"])?, "hi-there-fellow");
+/// # Ok(())
+/// # }
+pub fn replace(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
+    let func_name = "replace";
+    check_arguments_len(func_name, 2..=2, args.len())?;
+    Ok(val.replace(args[0], args[1]))
+}
+
+/// Quote the text with given strings or `""`
+///
+/// ```rust
+/// # use std::error::Error;
+/// # use string_template_plus::transformers::*;
+/// #
+/// # fn main() -> Result<(), Box<dyn Error>> {
+///     assert_eq!(quote("nata", vec![])?, "\"nata\"");
+///     assert_eq!(quote("nata", vec!["'"])?, "'nata'");
+///     assert_eq!(quote("na\"ta", vec![])?, "\"na\\\"ta\"");
+///     assert_eq!(quote("na'ta", vec!["'"])?, "'na\\'ta'");
+///     assert_eq!(quote("nata", vec!["`", "'"])?, "`nata'");
+/// # Ok(())
+/// # }
+pub fn quote(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
+    let func_name = "quote";
+    check_arguments_len(func_name, ..=2, args.len())?;
+    Ok(if args.is_empty() {
+        format!("{:?}", val)
+    } else if args.len() == 1 {
+        format!(
+            "{0}{1}{0}",
+            args[0],
+            val.replace(args[0], &format!("\\{}", args[0]))
+        )
+    } else {
+        format!(
+            "{}{}{}",
+            args[0],
+            val.replace(args[0], &format!("\\{}", args[0]))
+                .replace(args[1], &format!("\\{}", args[1])),
+            args[1]
+        )
+    })
 }
