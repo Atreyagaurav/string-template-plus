@@ -16,6 +16,7 @@ There are a few transformers available:
 | count                | str       | count str occurance      | {"nata":count(a)} ⇒ 2    |
 | repl [`replace`]     | str1,str2 | replace str1 by str2     | {"nata":rep(a,o)} ⇒ noto |
 | q      [`quote`]     | [str1]    | quote with str1, or ""   | {"nata":q()} ⇒ "noto"    |
+| take                 | str,N     | take Nth group sep by str| {"nata":take(a,2)} ⇒ "t" |
 
 You can chain transformers ones after another for combined actions. For example, `count( ):calc(+1)` will give you total number of words in a sentence.
 
@@ -294,6 +295,43 @@ pub fn replace(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
     let func_name = "replace";
     check_arguments_len(func_name, 2..=2, args.len())?;
     Ok(val.replace(args[0], args[1]))
+}
+
+/// Split the text with given separator and then take the Nth group
+///
+/// N=0, will give the whole group separated by comma, but it might
+/// give unexpected results if there is already comma in string and
+/// you're splitting with something else
+///
+/// ```rust
+/// # use std::error::Error;
+/// # use string_template_plus::transformers::*;
+/// #
+/// # fn main() -> Result<(), Box<dyn Error>> {
+///     assert_eq!(take("nata", vec!["a", "2"])?, "t");
+///     assert_eq!(take("hi there fellow", vec![" ", "2"])?, "there");
+///     assert_eq!(take("hi there fellow", vec![" ", "2", "2"])?, "there fellow");
+/// # Ok(())
+/// # }
+pub fn take(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
+    let func_name = "take";
+    check_arguments_len(func_name, 2..=3, args.len())?;
+    let n: usize = args[1].parse().map_err(|_| {
+        TransformerError::InvalidArgumentType(func_name, args[1].to_string(), "uint")
+    })?;
+    let spl = if args.len() == 2 {
+        val.split(args[0]).nth(n - 1)
+    } else {
+        val.splitn(
+            args[2].parse().map_err(|_| {
+                TransformerError::InvalidArgumentType(func_name, args[1].to_string(), "int")
+            })?,
+            args[0],
+        )
+        .nth(n - 1)
+    };
+
+    Ok(spl.unwrap_or("").to_string())
 }
 
 /// Quote the text with given strings or `""`
