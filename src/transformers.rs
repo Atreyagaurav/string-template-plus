@@ -57,6 +57,7 @@ pub fn apply_tranformers(val: &str, transformations: &str) -> Result<String, Tra
             "calc" => calc(&val, args)?,
             "count" => count(&val, args)?,
             "repl" => replace(&val, args)?,
+            "take" => take(&val, args)?,
             _ => {
                 return Err(TransformerError::UnknownTranformer(
                     name.to_string(),
