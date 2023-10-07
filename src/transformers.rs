@@ -17,6 +17,7 @@ There are a few transformers available:
 | repl [`replace`]     | str1,str2 | replace str1 by str2     | {"nata":rep(a,o)} ⇒ noto |
 | q      [`quote`]     | [str1]    | quote with str1, or ""   | {"nata":q()} ⇒ "noto"    |
 | take                 | str,N     | take Nth group sep by str| {"nata":take(a,2)} ⇒ "t" |
+| trim                 | str       | trim the string with str | {"nata":trim(a)} ⇒ "nat" |
 
 You can chain transformers ones after another for combined actions. For example, `count( ):calc(+1)` will give you total number of words in a sentence.
 
@@ -333,6 +334,34 @@ pub fn take(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
     };
 
     Ok(spl.unwrap_or("").to_string())
+}
+
+/// Trim the given string with given patterns one after another
+///
+///
+/// ```rust
+/// # use std::error::Error;
+/// # use string_template_plus::transformers::*;
+/// #
+/// # fn main() -> Result<(), Box<dyn Error>> {
+///     assert_eq!(trim("nata", vec!["a"])?, "nat");
+///     assert_eq!(trim("  \tnata\t  ", vec![])?, "nata");
+///     assert_eq!(trim("hi there! ", vec![" ", "!"])?, "hi there");
+///     assert_eq!(trim("hi there! ", vec![" !", "ih"])?, " there");
+/// # Ok(())
+/// # }
+pub fn trim(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
+    let func_name = "trim";
+    check_arguments_len(func_name, .., args.len())?;
+    if args.is_empty() {
+        return Ok(val.trim().to_string());
+    }
+    let mut val = val;
+    for arg in args {
+        val = val.trim_matches(|c| arg.contains(c))
+    }
+
+    Ok(val.to_string())
 }
 
 /// Quote the text with given strings or `""`
