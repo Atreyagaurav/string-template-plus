@@ -439,6 +439,15 @@ impl TemplatePart {
         }
         Ok(parts)
     }
+
+    pub fn variables(&self) -> Vec<&str> {
+        match self {
+            TemplatePart::Var(v, _) => vec![v.as_str()],
+            TemplatePart::Any(any) => any.iter().map(|p| p.variables()).flatten().collect(),
+            TemplatePart::Cmd(cmd) => cmd.iter().map(|p| p.variables()).flatten().collect(),
+            _ => vec![],
+        }
+    }
 }
 impl ToString for TemplatePart {
     fn to_string(&self) -> String {
