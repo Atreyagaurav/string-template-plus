@@ -165,20 +165,20 @@ To apply a tranformer to a variable provide it after [`VAR_TRANSFORM_SEP_CHAR`] 
 
 There are a few transformers available:
 
-| Transformer          | Arguments | Function                 | Example                  |
-|----------------------|-----------|--------------------------|--------------------------|
-| f [`format_float`]   | [.]N      | only N number of decimal | {"1.12":f(.1)} ⇒ 1.1     |
-| case [`string_case`] | up        | UPCASE a string          | {"na":case(up)} ⇒ NA     |
-| case [`string_case`] | down      | downcase a string        | {"nA":case(down)} ⇒ na   |
-| case [`string_case`] | proper    | Upcase the first letter  | {"nA":case(proper)} ⇒ Na |
-| case [`string_case`] | title     | Title Case the string    | {"na":case(title)} ⇒ Na  |
-| calc                 | [+-*\/^]N  | Airthmatic calculation   | {"1":calc(+1*2^2)} ⇒ 16  |
-| calc                 | [+-*\/^]N  | Airthmatic calculation   | {"1":calc(+1,-1)} ⇒ 2,0  |
-| count                | str       | count str occurance      | {"nata":count(a)} ⇒ 2    |
-| repl [`replace`]     | str1,str2 | replace str1 by str2     | {"nata":rep(a,o)} ⇒ noto |
-| q      [`quote`]     | [str1]    | quote with str1, or ""   | {"nata":q()} ⇒ "noto"    |
-| take                 | str,N     | take Nth group sep by str| {"nata":take(a,2)} ⇒ "t" |
-| trim                 | str       | trim the string with str | {"nata":trim(a)} ⇒ "nat" |
+| Transformer | Funtion                        | Arguments | Function                  | Example                  |
+|-------------|--------------------------------|-----------|---------------------------|--------------------------|
+| f           | [`transformers::float_format`] | [.]N      | only N number of decimal  | {"1.12":f(.1)} ⇒ 1.1     |
+| case        | [`transformers::string_case`]  | up        | UPCASE a string           | {"na":case(up)} ⇒ NA     |
+| case        | [`transformers::string_case`]  | down      | downcase a string         | {"nA":case(down)} ⇒ na   |
+| case        | [`transformers::string_case`]  | proper    | Upcase the first letter   | {"nA":case(proper)} ⇒ Na |
+| case        | [`transformers::string_case`]  | title     | Title Case the string     | {"na":case(title)} ⇒ Na  |
+| calc        | [`transformers::calc`]         | [+-*\/^]N | Airthmatic calculation    | {"1":calc(+1*2^2)} ⇒ 16  |
+| calc        | [`transformers::calc`]         | [+-*\/^]N | Airthmatic calculation    | {"1":calc(+1,-1)} ⇒ 2,0  |
+| count       | [`transformers::count`]        | str       | count str occurance       | {"nata":count(a)} ⇒ 2    |
+| repl        | [`transformers::replace`]      | str1,str2 | replace str1 by str2      | {"nata":rep(a,o)} ⇒ noto |
+| q           | [`transformers::quote`]        | [str1]    | quote with str1, or ""    | {"nata":q()} ⇒ "noto"    |
+| take        | [`transformers::take`]         | str,N     | take Nth group sep by str | {"nata":take(a,2)} ⇒ "t" |
+| trim        | [`transformers::trim`]         | str       | trim the string with str  | {"nata":trim(a)} ⇒ "nat" |
 
 You can chain transformers ones after another for combined actions. For example, `count( ):calc(+1)` will give you total number of words in a sentence.
 
