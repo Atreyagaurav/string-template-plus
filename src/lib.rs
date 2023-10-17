@@ -17,10 +17,8 @@ shell commands running through [`Exec`].
 - Support for any arbitrary commands, etc.
 You can keep any command inside `$(` and `)` to run it and use the result in the template. You can use other format elements inside it.
 - Support for iterating (incremented with -N) strings with the same template conditions,
-- Limited formatting support like UPCASE, downcase, float significant digits, etc.
+- Limited formatting support like UPCASE, downcase, float significant digits, etc. Look into [`transformers`] for more info.
 
-# Bug
-Using transformations with `()` inside a command `$()` is not possible as they are recognized using regex. Need to fix it later.
 
 # Usages
 Simple variables:
@@ -160,8 +158,32 @@ shell_commands: false,
 # }
 ```
 
-Transformers:
+# Transformers:
 Although there is no format strings, there are transformer functions that can format for a bit. I'm planning to add more format functions as the need arises.
+
+To apply a tranformer to a variable provide it after [`VAR_TRANSFORM_SEP_CHAR`] (currently ":") to a variable template.
+
+There are a few transformers available:
+
+| Transformer          | Arguments | Function                 | Example                  |
+|----------------------|-----------|--------------------------|--------------------------|
+| f [`format_float`]   | [.]N      | only N number of decimal | {"1.12":f(.1)} ⇒ 1.1     |
+| case [`string_case`] | up        | UPCASE a string          | {"na":case(up)} ⇒ NA     |
+| case [`string_case`] | down      | downcase a string        | {"nA":case(down)} ⇒ na   |
+| case [`string_case`] | proper    | Upcase the first letter  | {"nA":case(proper)} ⇒ Na |
+| case [`string_case`] | title     | Title Case the string    | {"na":case(title)} ⇒ Na  |
+| calc                 | [+-*\/^]N  | Airthmatic calculation   | {"1":calc(+1*2^2)} ⇒ 16  |
+| calc                 | [+-*\/^]N  | Airthmatic calculation   | {"1":calc(+1,-1)} ⇒ 2,0  |
+| count                | str       | count str occurance      | {"nata":count(a)} ⇒ 2    |
+| repl [`replace`]     | str1,str2 | replace str1 by str2     | {"nata":rep(a,o)} ⇒ noto |
+| q      [`quote`]     | [str1]    | quote with str1, or ""   | {"nata":q()} ⇒ "noto"    |
+| take                 | str,N     | take Nth group sep by str| {"nata":take(a,2)} ⇒ "t" |
+| trim                 | str       | trim the string with str | {"nata":trim(a)} ⇒ "nat" |
+
+You can chain transformers ones after another for combined actions. For example, `count( ):calc(+1)` will give you total number of words in a sentence.
+
+Examples are in individual functions in [`transformers`].
+
 ```rust
 # use std::error::Error;
 # use std::collections::HashMap;

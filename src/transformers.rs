@@ -1,28 +1,4 @@
-/*! Transformers for the template
-
-To apply a tranformer to a variable provide it after [`VAR_TRANSFORM_SEP_CHAR`] (currently ":") to a variable template.
-
-There are a few transformers available:
-
-| Transformer          | Arguments | Function                 | Example                  |
-|----------------------|-----------|--------------------------|--------------------------|
-| f [`format_float`]   | [.]N      | only N number of decimal | {"1.12":f(.1)} ⇒ 1.1     |
-| case [`string_case`] | up        | UPCASE a string          | {"na":case(up)} ⇒ NA     |
-| case [`string_case`] | down      | downcase a string        | {"nA":case(down)} ⇒ na   |
-| case [`string_case`] | proper    | Upcase the first letter  | {"nA":case(proper)} ⇒ Na |
-| case [`string_case`] | title     | Title Case the string    | {"na":case(title)} ⇒ Na  |
-| calc                 | [+-*\/^]N  | Airthmatic calculation   | {"1":calc(+1*2^2)} ⇒ 16  |
-| calc                 | [+-*\/^]N  | Airthmatic calculation   | {"1":calc(+1,-1)} ⇒ 2,0  |
-| count                | str       | count str occurance      | {"nata":count(a)} ⇒ 2    |
-| repl [`replace`]     | str1,str2 | replace str1 by str2     | {"nata":rep(a,o)} ⇒ noto |
-| q      [`quote`]     | [str1]    | quote with str1, or ""   | {"nata":q()} ⇒ "noto"    |
-| take                 | str,N     | take Nth group sep by str| {"nata":take(a,2)} ⇒ "t" |
-| trim                 | str       | trim the string with str | {"nata":trim(a)} ⇒ "nat" |
-
-You can chain transformers ones after another for combined actions. For example, `count( ):calc(+1)` will give you total number of words in a sentence.
-
-Examples are in individual functions.
-*/
+/// Transformers for the template
 use std::ops::{Bound, RangeBounds};
 
 use crate::errors::TransformerError;
@@ -32,7 +8,7 @@ use regex::Regex;
 use titlecase::titlecase;
 
 /// Applies any tranformations to the variable, you can chain the
-/// transformers Called whenever you use [`VAR_TRANSFORM_SEP_CHAR`] to
+/// transformers called whenever you use [`VAR_TRANSFORM_SEP_CHAR`] to
 /// provide a transformer in the template.
 pub fn apply_tranformers(val: &str, transformations: &str) -> Result<String, TransformerError> {
     let mut val: String = val.to_string();
@@ -59,6 +35,8 @@ pub fn apply_tranformers(val: &str, transformations: &str) -> Result<String, Tra
             "count" => count(&val, args)?,
             "repl" => replace(&val, args)?,
             "take" => take(&val, args)?,
+            "trim" => trim(&val, args)?,
+            "q" => quote(&val, args)?,
             _ => {
                 return Err(TransformerError::UnknownTranformer(
                     name.to_string(),
