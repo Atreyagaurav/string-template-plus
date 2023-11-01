@@ -36,6 +36,8 @@ pub fn apply_tranformers(val: &str, transformations: &str) -> Result<String, Tra
             "repl" => replace(&val, args)?,
             "take" => take(&val, args)?,
             "trim" => trim(&val, args)?,
+            "comma" => comma(&val, args)?,
+            "group" => group(&val, args)?,
             "q" => quote(&val, args)?,
             _ => {
                 return Err(TransformerError::UnknownTranformer(
@@ -340,6 +342,97 @@ pub fn trim(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
     }
 
     Ok(val.to_string())
+}
+
+/// Insert commas to the given string in provided positions
+///
+///
+/// ```rust
+/// # use std::error::Error;
+/// # use string_template_plus::transformers::*;
+/// #
+/// # fn main() -> Result<(), Box<dyn Error>> {
+///     assert_eq!(comma("1234", vec!["3"])?, "1,234");
+///     assert_eq!(comma("1234567", vec!["3"])?, "1,234,567");
+///     assert_eq!(comma("1234567", vec!["3", "2"])?, "12,34,567");
+///     assert_eq!(comma("91234567", vec!["3", "2"])?, "9,12,34,567");
+/// # Ok(())
+/// # }
+pub fn comma(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
+    let func_name = "comma";
+    check_arguments_len(func_name, 1.., args.len())?;
+    let mut args: Vec<usize> = args
+        .iter()
+        .map(|s| {
+            s.parse().map_err(|_| {
+                TransformerError::InvalidArgumentType(func_name, s.to_string(), "uint")
+            })
+        })
+        .rev()
+        .collect::<Result<Vec<usize>, TransformerError>>()?;
+    let last = args[0];
+    let mut i = args.pop().unwrap();
+
+    let mut result = vec![];
+    let val: Vec<char> = val.replace(',', "").chars().rev().collect();
+    for c in val {
+        if i == 0 {
+            i = args.pop().unwrap_or(last);
+            result.push(',');
+        }
+        result.push(c);
+        i -= 1;
+    }
+    result.reverse();
+    let result: String = result.into_iter().collect();
+    Ok(result)
+}
+
+/// Insert characters to the given string in provided positions
+///
+///
+/// ```rust
+/// # use std::error::Error;
+/// # use string_template_plus::transformers::*;
+/// #
+/// # fn main() -> Result<(), Box<dyn Error>> {
+///     assert_eq!(group("1234", vec![",", "3"])?, "1,234");
+///     assert_eq!(group("1234567", vec!["_", "3"])?, "1_234_567");
+///     assert_eq!(group("1234567", vec![", ", "3", "2"])?, "12, 34, 567");
+///     assert_eq!(group("91234567", vec!["_", "3", "2"])?, "9_12_34_567");
+/// # Ok(())
+/// # }
+pub fn group(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
+    let func_name = "group";
+    check_arguments_len(func_name, 2.., args.len())?;
+    let sep = args[0];
+    let mut args: Vec<usize> = args[1..]
+        .iter()
+        .map(|s| {
+            s.parse().map_err(|_| {
+                TransformerError::InvalidArgumentType(func_name, s.to_string(), "uint")
+            })
+        })
+        .rev()
+        .collect::<Result<Vec<usize>, TransformerError>>()?;
+    let last = args[0];
+    let mut i = args.pop().unwrap();
+
+    let mut result = vec![];
+    let val: Vec<char> = val.replace(sep, "").chars().rev().collect();
+    for c in val {
+        if i == 0 {
+            i = args.pop().unwrap_or(last);
+            for c in sep.chars().rev() {
+                result.push(c);
+            }
+        }
+        result.push(c);
+        i -= 1;
+    }
+    result.reverse();
+    let result: String = result.into_iter().collect();
+    Ok(result)
 }
 
 /// Quote the text with given strings or `""`
