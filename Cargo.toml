@@ -24,7 +24,3 @@ titlecase = "2.2.1"
 [lib]
 name = "string_template_plus"
 path = "src/lib.rs"
-
-[[bin]]
-name = "string-template-plus-visualize"
-path = "src/bin/visual-test.rs"
