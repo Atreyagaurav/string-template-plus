@@ -134,12 +134,10 @@ pub fn float_format(val: &str, args: Vec<&str>) -> Result<String, TransformerErr
                 TransformerError::InvalidArgumentType(func_name, f.to_string(), "uint")
             })?;
         }
-    } else {
-        if !format.is_empty() {
-            decimal = format.parse().map_err(|_| {
-                TransformerError::InvalidArgumentType(func_name, format.to_string(), "uint")
-            })?;
-        }
+    } else if !format.is_empty() {
+        decimal = format.parse().map_err(|_| {
+            TransformerError::InvalidArgumentType(func_name, format.to_string(), "uint")
+        })?;
     }
     Ok(format!("{0:1$.2$}", val, start, decimal))
 }

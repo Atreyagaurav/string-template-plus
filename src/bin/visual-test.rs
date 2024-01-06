@@ -15,12 +15,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         templ.print();
         println!();
         println!("--------");
-        let vars: HashSet<&str> = templ
-            .parts()
-            .iter()
-            .map(|p| p.variables())
-            .flatten()
-            .collect();
+        let vars: HashSet<&str> = templ.parts().iter().flat_map(|p| p.variables()).collect();
         println!("Variables: {:?}", vars);
         println!("--------");
         println!("{:?}", templ.parts());

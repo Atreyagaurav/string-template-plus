@@ -442,11 +442,9 @@ impl TemplatePart {
             if c == end && nest.is_empty() {
                 return Ok(offset + i);
             } else if TEMPLATE_PAIRS_START.contains(&c) {
-                if c == '"' {
-                    if nest.contains(&c) {
-                        while Some('"') != nest.pop() {}
-                        continue;
-                    }
+                if c == '"' && nest.contains(&c) {
+                    while Some('"') != nest.pop() {}
+                    continue;
                 }
                 nest.push(c);
             } else if TEMPLATE_PAIRS_END.contains(&c) {
@@ -479,16 +477,14 @@ impl TemplatePart {
         let mut i = 0usize;
         let mut escape = false;
         while i < templ.len() {
-            if templ[i..].starts_with(ESCAPE_CHAR) {
-                if !escape {
-                    if i > last {
-                        parts.push(Self::lit(&templ[last..i]));
-                    }
-                    i += 1;
-                    last = i;
-                    escape = true;
-                    continue;
+            if templ[i..].starts_with(ESCAPE_CHAR) && !escape {
+                if i > last {
+                    parts.push(Self::lit(&templ[last..i]));
                 }
+                i += 1;
+                last = i;
+                escape = true;
+                continue;
             }
             if escape {
                 parts.push(Self::lit(&templ[i..(i + 1)]));
@@ -514,7 +510,7 @@ impl TemplatePart {
                 // need to include the found ')' for lisp expr to be valid
                 parts.push(Self::lisp(&templ[(i + 1)..=end]));
                 i = end;
-            } else if templ[i..].starts_with("{") {
+            } else if templ[i..].starts_with('{') {
                 let end = Self::find_end('}', templ, i + 1)?;
                 if i > last {
                     parts.push(Self::lit(&templ[last..i]));
@@ -522,7 +518,7 @@ impl TemplatePart {
                 last = end + 1;
                 parts.push(Self::maybe_any(&templ[(i + 1)..end]));
                 i = end;
-            } else if templ[i..].starts_with("\"") {
+            } else if templ[i..].starts_with('"') {
                 let end = Self::find_end('"', templ, i + 1)?;
                 if i > last {
                     parts.push(Self::lit(&templ[last..i]));
@@ -543,8 +539,8 @@ impl TemplatePart {
         match self {
             TemplatePart::Var(v, _) => vec![v.as_str()],
             TemplatePart::Lisp(expr, _, vars) => vars.iter().map(|(s, e)| &expr[*s..*e]).collect(),
-            TemplatePart::Any(any) => any.iter().map(|p| p.variables()).flatten().collect(),
-            TemplatePart::Cmd(cmd) => cmd.iter().map(|p| p.variables()).flatten().collect(),
+            TemplatePart::Any(any) => any.iter().flat_map(|p| p.variables()).collect(),
+            TemplatePart::Cmd(cmd) => cmd.iter().flat_map(|p| p.variables()).collect(),
             _ => vec![],
         }
     }
@@ -736,8 +732,8 @@ impl<'a> RenderIter<'a> {
     /// Creates a new [`RenderIter<'a>`] object
     pub fn new(template: &'a Template, options: &'a RenderOptions) -> Self {
         Self {
-            template: &template,
-            options: &options,
+            template,
+            options,
             count: 0,
         }
     }
@@ -746,7 +742,7 @@ impl<'a> RenderIter<'a> {
 impl<'a> Iterator for RenderIter<'a> {
     type Item = String;
     fn next(&mut self) -> Option<String> {
-        self.template.render(&self.options).ok().map(|t| {
+        self.template.render(self.options).ok().map(|t| {
             self.count += 1;
             format!("{}-{}", t, self.count)
         })
@@ -764,7 +760,7 @@ impl Render for TemplatePart {
                 .map(|s| -> Result<String, Error> { Ok(transformers::apply_tranformers(s, f)?) })?,
             TemplatePart::Time(t) => Ok(Local::now().format(t).to_string()),
             TemplatePart::Lisp(e, f, _) => Ok(transformers::apply_tranformers(
-                &lisp::calculate(&op.variables, &e)?,
+                &lisp::calculate(&op.variables, e)?,
                 f,
             )?),
             TemplatePart::Cmd(c) => {

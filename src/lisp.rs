@@ -59,7 +59,7 @@ pub fn calculate(variables: &HashMap<String, String>, expr: &str) -> anyhow::Res
                     msg: "Too many/few arguments in st+var.".into(),
                 })?
             };
-            return Ok(Value::String(val));
+            Ok(Value::String(val))
         }))),
     );
 
@@ -90,7 +90,7 @@ pub fn calculate(variables: &HashMap<String, String>, expr: &str) -> anyhow::Res
             let val: FloatType = val
                 .parse()
                 .map_err(|e: ParseFloatError| RuntimeError { msg: e.to_string() })?;
-            return Ok(Value::Float(val));
+            Ok(Value::Float(val))
         }))),
     );
 
@@ -98,11 +98,14 @@ pub fn calculate(variables: &HashMap<String, String>, expr: &str) -> anyhow::Res
     env.borrow_mut().define(
         Symbol::from("st+has"),
         Value::NativeClosure(Rc::new(RefCell::new(move |_, args: Vec<Value>| {
-            if args.len() == 1 {
-                let has: bool = vars3.get(&args[0].to_string()).is_some();
-                return Ok(if has { Value::True } else { Value::False });
-            }
-            return Ok(Value::NIL);
+            let name: String = match &args[0] {
+                Value::String(s) => s.to_string(),
+                Value::Symbol(s) => s.to_string(),
+                _ => Err(RuntimeError {
+                    msg: "Only Symbol and String can be passed to st+num.".into(),
+                })?,
+            };
+            Ok(vars3.get(&name).is_some().into())
         }))),
     );
 
