@@ -101,6 +101,10 @@ You need to quote the symbol to pass to the functions (e.g. (st+num 'total).
 
 Else, you can just write the variables in braces like normal as well.
 
+there are two use cases.
+- Standalone use case: in the format of `=()` that'll be replaced with the results.
+- Inside the `{}` that can be used as alternative to a variable, or with a transformer.
+
 ```rust
 # use std::error::Error;
 # use std::collections::HashMap;
@@ -108,7 +112,7 @@ Else, you can just write the variables in braces like normal as well.
 # use string_template_plus::{Render, RenderOptions, Template};
 #
 # fn main() -> Result<(), Box<dyn Error>> {
-let templ = Template::parse_template("hello {nickname?name}. You've done =(/ (st+num 'task_done) (st+num 'task_total)) work.").unwrap();
+let templ = Template::parse_template("hello {nickname?name}. You've done =(/ (st+num 'task_done) (st+num 'task_total)) work. {=(- 1 (/ (st+num 'task_done) (st+num 'task_total))):calc(*100):f(1)}% remains.").unwrap();
 let mut vars: HashMap<String, String> = HashMap::new();
 vars.insert("name".into(), "world".into());
 vars.insert("task_done".into(), "1".into());
@@ -119,7 +123,7 @@ variables: vars,
 ..Default::default()
             })
             .unwrap();
-        assert_eq!(rendered, "hello world. You've done 0.25 work.");
+        assert_eq!(rendered, "hello world. You've done 0.25 work. 75.0% remains.");
 # Ok(())
 # }
 ```
