@@ -23,7 +23,8 @@ use std::{
 ///     vars.insert("test".into(), "1".into());
 ///     assert_eq!(calculate(&vars, "(+ 1 1)")?, "2");
 ///     assert_eq!(calculate(&vars, "(st+var 'test)")?, "\"1\"");
-///     assert_eq!(calculate(&vars, "(/ 2 (st+num 'test))")?, "2");
+///     assert_eq!(calculate(&vars, "(/ 20 (st+num 'test))")?, "20");
+///     assert_eq!(calculate(&vars, "(/ 20 (st+num 'testing 5))")?, "4");
 ///     assert_eq!(calculate(&vars, "(st+has 'test)")?, "T");
 /// # Ok(())
 /// # }
@@ -39,11 +40,19 @@ pub fn calculate(variables: &HashMap<String, String>, expr: &str) -> anyhow::Res
     env.borrow_mut().define(
         Symbol::from("st+var"),
         Value::NativeClosure(Rc::new(RefCell::new(move |_, args: Vec<Value>| {
-            if args.len() == 1 {
-                let val = vars1.get(&args[0].to_string()).unwrap().to_string();
-                return Ok(Value::String(val));
-            }
-            return Ok(Value::NIL);
+            let val: String = if args.len() == 1 {
+                vars1.get(&args[0].to_string()).unwrap().into()
+            } else if args.len() == 2 {
+                vars1
+                    .get(&args[0].to_string())
+                    .map(|s| s.to_string())
+                    .unwrap_or(args[1].to_string())
+            } else {
+                Err(RuntimeError {
+                    msg: "Too many/few arguments in st+num.".into(),
+                })?
+            };
+            return Ok(Value::String(val));
         }))),
     );
 
@@ -51,15 +60,23 @@ pub fn calculate(variables: &HashMap<String, String>, expr: &str) -> anyhow::Res
     env.borrow_mut().define(
         Symbol::from("st+num"),
         Value::NativeClosure(Rc::new(RefCell::new(move |_, args: Vec<Value>| {
-            if args.len() == 1 {
-                let val: FloatType = vars2
+            let val: String = if args.len() == 1 {
+                vars2.get(&args[0].to_string()).unwrap().into()
+            } else if args.len() == 2 {
+                vars2
                     .get(&args[0].to_string())
-                    .unwrap()
-                    .parse()
-                    .map_err(|e: ParseFloatError| RuntimeError { msg: e.to_string() })?;
-                return Ok(Value::Float(val));
-            }
-            return Ok(Value::NIL);
+                    .map(|s| s.to_string())
+                    .unwrap_or(args[1].to_string())
+            } else {
+                Err(RuntimeError {
+                    msg: "Too many/few arguments in st+num.".into(),
+                })?
+            };
+
+            let val: FloatType = val
+                .parse()
+                .map_err(|e: ParseFloatError| RuntimeError { msg: e.to_string() })?;
+            return Ok(Value::Float(val));
         }))),
     );
 
