@@ -86,6 +86,44 @@ variables: vars,
 # }
 ```
 
+Calculations can be written in lisp like language, it supports simple
+functions. Using lisp can also allow you to write more complex
+logic. The lisp implementation is the one from
+https://github.com/brundonsmith/rust_lisp refer to the README there
+for the functionality.
+
+To access the values in lisp you can use the following functions:
+- `st+var` : the value as string,
+- `st+num` the value as a number, and
+- `st+has` true if value is present else false.
+
+You need to quote the symbol to pass to the functions (e.g. (st+num 'total).
+
+Else, you can just write the variables in braces like normal as well.
+
+```rust
+# use std::error::Error;
+# use std::collections::HashMap;
+# use std::path::PathBuf;
+# use string_template_plus::{Render, RenderOptions, Template};
+#
+# fn main() -> Result<(), Box<dyn Error>> {
+let templ = Template::parse_template("hello {nickname?name}. You've done =(/ (st+num 'task_done) (st+num 'task_total)) work.").unwrap();
+let mut vars: HashMap<String, String> = HashMap::new();
+vars.insert("name".into(), "world".into());
+vars.insert("task_done".into(), "1".into());
+vars.insert("task_total".into(), "4".into());
+let rendered = templ
+.render(&RenderOptions {
+variables: vars,
+..Default::default()
+            })
+            .unwrap();
+        assert_eq!(rendered, "hello world. You've done 0.25 work.");
+# Ok(())
+# }
+```
+
 Custom Commands:
 ```rust
 # use std::error::Error;
