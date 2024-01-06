@@ -1,2 +1,5 @@
 /target
 /Cargo.lock
+
+/pkg
+*.pkg.tar.zst
