@@ -1,6 +1,6 @@
 # Maintainer: Gaurav Atreya <allmanpride@gmail.com>
 pkgname=string-template-plus
-pkgver=0.4.1
+pkgver=0.4.2
 pkgrel=1
 pkgdesc="String Template with extra functionalities"
 arch=('x86_64')

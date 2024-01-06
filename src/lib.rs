@@ -370,8 +370,17 @@ impl TemplatePart {
         let variables = part
             .match_indices("(st+")
             .filter_map(|(loc, _)| {
-                let end = Self::find_end(')', &part, loc).ok()? - 1;
-                part[loc..end].find(' ').map(|s| (s + 1 + loc, end))
+                let end = Self::find_end(')', &part, loc + 1).ok()?;
+                part[loc..end].find(' ').map(|s| {
+                    let p = &part[(s + 1 + loc)..end];
+                    if p.starts_with('"') {
+                        (s + 2 + loc, end - 1)
+                    } else if p.starts_with('\'') {
+                        (s + 2 + loc, end)
+                    } else {
+                        (s + 1 + loc, end)
+                    }
+                })
             })
             .collect();
         Self::Lisp(part, fstr, variables)

@@ -1,1 +1,1 @@
-see $(some-command --flag "and the value" {problem}) =(+ 1 2 (st+num hithere)) {otherhi?=(1+ pi):f(4)}
+see $(some-command --flag "and the value" {problem}) =(+ 1 2 (st+num 'hithere) (st+num "otherhi")) {otherhi?=(1+ pi):f(4)}
