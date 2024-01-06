@@ -23,7 +23,7 @@ use std::{
 ///     vars.insert("test".into(), "1".into());
 ///     assert_eq!(calculate(&vars, "(+ 1 1)")?, "2");
 ///     assert_eq!(calculate(&vars, "(st+var 'test)")?, "\"1\"");
-///     assert_eq!(calculate(&vars, "(/ 20 (st+num 'test))")?, "20");
+///     assert_eq!(calculate(&vars, "(/ 20 (st+num \"test\"))")?, "20");
 ///     assert_eq!(calculate(&vars, "(/ 20 (st+num 'testing 5))")?, "4");
 ///     assert_eq!(calculate(&vars, "(st+has 'test)")?, "T");
 /// # Ok(())
@@ -40,16 +40,23 @@ pub fn calculate(variables: &HashMap<String, String>, expr: &str) -> anyhow::Res
     env.borrow_mut().define(
         Symbol::from("st+var"),
         Value::NativeClosure(Rc::new(RefCell::new(move |_, args: Vec<Value>| {
+            let name: String = match &args[0] {
+                Value::String(s) => s.to_string(),
+                Value::Symbol(s) => s.to_string(),
+                _ => Err(RuntimeError {
+                    msg: "Only Symbol and String can be passed to st+var.".into(),
+                })?,
+            };
             let val: String = if args.len() == 1 {
-                vars1.get(&args[0].to_string()).unwrap().into()
+                vars1.get(&name).unwrap().into()
             } else if args.len() == 2 {
                 vars1
-                    .get(&args[0].to_string())
+                    .get(&name)
                     .map(|s| s.to_string())
                     .unwrap_or(args[1].to_string())
             } else {
                 Err(RuntimeError {
-                    msg: "Too many/few arguments in st+num.".into(),
+                    msg: "Too many/few arguments in st+var.".into(),
                 })?
             };
             return Ok(Value::String(val));
@@ -60,11 +67,18 @@ pub fn calculate(variables: &HashMap<String, String>, expr: &str) -> anyhow::Res
     env.borrow_mut().define(
         Symbol::from("st+num"),
         Value::NativeClosure(Rc::new(RefCell::new(move |_, args: Vec<Value>| {
+            let name: String = match &args[0] {
+                Value::String(s) => s.to_string(),
+                Value::Symbol(s) => s.to_string(),
+                _ => Err(RuntimeError {
+                    msg: "Only Symbol and String can be passed to st+num.".into(),
+                })?,
+            };
             let val: String = if args.len() == 1 {
-                vars2.get(&args[0].to_string()).unwrap().into()
+                vars2.get(&name).unwrap().into()
             } else if args.len() == 2 {
                 vars2
-                    .get(&args[0].to_string())
+                    .get(&name)
                     .map(|s| s.to_string())
                     .unwrap_or(args[1].to_string())
             } else {
