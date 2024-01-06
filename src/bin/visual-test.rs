@@ -1,5 +1,5 @@
-use std::env;
 use std::error::Error;
+use std::{collections::HashSet, env};
 use string_template_plus::{Render, Template};
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -14,6 +14,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         let templ = Template::parse_template(&contents)?;
         templ.print();
         println!();
+        println!("--------");
+        let vars: HashSet<&str> = templ
+            .parts()
+            .iter()
+            .map(|p| p.variables())
+            .flatten()
+            .collect();
+        println!("Variables: {:?}", vars);
         println!("--------");
         println!("{:?}", templ.parts());
     }

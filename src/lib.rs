@@ -237,12 +237,15 @@ use std::path::PathBuf;
 use subprocess::Exec;
 
 pub mod errors;
+pub mod lisp;
 pub mod transformers;
 
 /// Character to separate the variables. If the first variable is not present it'll use the one behind it and so on. Keep it at the end, if you want a empty string instead of error on missing variable.
 pub static OPTIONAL_RENDER_CHAR: char = '?';
 /// Character that should be in the beginning of the variable to determine it as datetime format.
 pub static TIME_FORMAT_CHAR: char = '%';
+/// Character that indicates that this is a lisp expression from here.
+pub static LISP_START_CHAR: char = '=';
 /// Character that separates variable with format
 pub static VAR_TRANSFORM_SEP_CHAR: char = ':';
 /// Quote characters to use to make a value literal instead of a variable. In combination with [`OPTIONAL_RENDER_CHAR`] it can be used as a default value when variable(s) is/are not present.
@@ -283,6 +286,8 @@ pub enum TemplatePart {
     Var(String, String),
     /// DateTime format, use [`chrono::Local`] in the given format
     Time(String),
+    /// Lisp expression to calculate with the transformer
+    Lisp(String, String, Vec<(usize, usize)>),
     /// Shell Command, use the output of command in the rendered String
     Cmd(Vec<TemplatePart>),
     /// Multiple variables or [`TemplatePart`]s, use the first one that succeeds
@@ -311,6 +316,22 @@ impl TemplatePart {
         }
     }
 
+    pub fn lisp(part: &str) -> Self {
+        let (part, fstr) = if let Some((part, fstr)) = part.split_once(VAR_TRANSFORM_SEP_CHAR) {
+            (part.to_string(), fstr.to_string())
+        } else {
+            (part.to_string(), "".to_string())
+        };
+        let variables = part
+            .match_indices("(st+")
+            .filter_map(|(loc, _)| {
+                let end = Self::find_end(')', &part, loc).ok()? - 1;
+                part[loc..end].find(' ').map(|s| (s + 1 + loc, end))
+            })
+            .collect();
+        Self::Lisp(part, fstr, variables)
+    }
+
     pub fn time(part: &str) -> Self {
         Self::Time(part.to_string())
     }
@@ -325,6 +346,8 @@ impl TemplatePart {
             Self::lit(&part[1..(part.len() - 1)])
         } else if part.starts_with(TIME_FORMAT_CHAR) {
             Self::time(part)
+        } else if part.starts_with(LISP_START_CHAR) {
+            Self::lisp(&part[1..])
         } else {
             Self::var(part)
         }
@@ -437,6 +460,15 @@ impl TemplatePart {
                 last = end + 1;
                 parts.push(Self::parse_cmd(&templ[(i + 2)..end])?);
                 i = end;
+            } else if templ[i..].starts_with("=(") {
+                let end = Self::find_end(')', templ, i + 2)?;
+                if i > last {
+                    parts.push(Self::lit(&templ[last..i]));
+                }
+                last = end + 1;
+                // need to include the found ')' for lisp expr to be valid
+                parts.push(Self::lisp(&templ[(i + 1)..=end]));
+                i = end;
             } else if templ[i..].starts_with("{") {
                 let end = Self::find_end('}', templ, i + 1)?;
                 if i > last {
@@ -465,6 +497,7 @@ impl TemplatePart {
     pub fn variables(&self) -> Vec<&str> {
         match self {
             TemplatePart::Var(v, _) => vec![v.as_str()],
+            TemplatePart::Lisp(expr, _, vars) => vars.iter().map(|(s, e)| &expr[*s..*e]).collect(),
             TemplatePart::Any(any) => any.iter().map(|p| p.variables()).flatten().collect(),
             TemplatePart::Cmd(cmd) => cmd.iter().map(|p| p.variables()).flatten().collect(),
             _ => vec![],
@@ -477,6 +510,7 @@ impl ToString for TemplatePart {
             Self::Lit(s) => format!("{0}{1}{0}", LITERAL_VALUE_QUOTE_CHAR, s),
             Self::Var(s, _) => s.to_string(),
             Self::Time(s) => s.to_string(),
+            Self::Lisp(e, _, _) => e.to_string(),
             Self::Cmd(v) => v
                 .iter()
                 .map(|p| p.to_string())
@@ -684,6 +718,10 @@ impl Render for TemplatePart {
                 .ok_or(errors::RenderTemplateError::VariableNotFound(v.to_string()))
                 .map(|s| -> Result<String, Error> { Ok(transformers::apply_tranformers(s, f)?) })?,
             TemplatePart::Time(t) => Ok(Local::now().format(t).to_string()),
+            TemplatePart::Lisp(e, f, _) => Ok(transformers::apply_tranformers(
+                &lisp::calculate(&op.variables, &e)?,
+                f,
+            )?),
             TemplatePart::Cmd(c) => {
                 let cmd = c.render(op)?;
                 if op.shell_commands {
@@ -712,6 +750,18 @@ impl Render for TemplatePart {
                 }
             }),
             Self::Time(s) => print!("{}", s.on_yellow()),
+            Self::Lisp(expr, sf, vars) => {
+                let mut last = 0;
+                for (s, e) in vars {
+                    print!("{}", expr[last..*s].on_purple());
+                    print!("{}", expr[*s..*e].on_blue());
+                    last = *e;
+                }
+                print!("{}", expr[last..expr.len()].on_purple());
+                if !sf.is_empty() {
+                    print!("{}", format!(":{}", sf).on_bright_purple())
+                }
+            }
             Self::Cmd(v) => {
                 // overline; so the literal values are detected
                 print!("\x1B[53m");
