@@ -453,11 +453,15 @@ pub fn quote(val: &str, args: Vec<&str>) -> Result<String, TransformerError> {
     Ok(if args.is_empty() {
         format!("{:?}", val)
     } else if args.len() == 1 {
-        format!(
-            "{0}{1}{0}",
-            args[0],
-            val.replace(args[0], &format!("\\{}", args[0]))
-        )
+        if args[0].is_empty() {
+            format!("{:?}", val)
+        } else {
+            format!(
+                "{0}{1}{0}",
+                args[0],
+                val.replace(args[0], &format!("\\{}", args[0]))
+            )
+        }
     } else {
         format!(
             "{}{}{}",
