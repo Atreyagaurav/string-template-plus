@@ -331,7 +331,7 @@ pub enum TemplatePart {
     Var(String, String),
     /// DateTime format, use [`chrono::Local`] in the given format
     Time(String),
-    /// Lisp expression to calculate with the transformer
+    /// Lisp expression to calculate with the transformer, last part is start..end of variables used in lisp
     Lisp(String, String, Vec<(usize, usize)>),
     /// Shell Command, use the output of command in the rendered String
     Cmd(Vec<TemplatePart>),
@@ -598,10 +598,16 @@ impl ToString for TemplatePart {
 ///     assert_eq!(rendered, "hello John. You're 132.3kg");
 /// # Ok(())
 /// }
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct Template {
     original: String,
     parts: Vec<TemplatePart>,
+}
+
+impl std::convert::AsRef<str> for Template {
+    fn as_ref(&self) -> &str {
+        &self.original
+    }
 }
 
 impl Template {
